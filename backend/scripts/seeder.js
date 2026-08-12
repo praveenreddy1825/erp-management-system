@@ -30,18 +30,68 @@ const seedDatabase = async () => {
     await GRN.deleteMany();
     await Invoice.deleteMany();
 
-    // 1. Get or create a default Admin User for creation links
-    let adminUser = await User.findOne({ role: 'Admin' });
-    if (!adminUser) {
-      // Create a default admin user if one doesn't exist
-      adminUser = await User.create({
-        name: 'Default Admin',
+    console.log('Seeding user accounts...');
+    await User.deleteMany();
+    const users = await User.insertMany([
+      {
+        name: 'System Admin',
         email: 'admin@erp.com',
-        password: 'password123',
+        password: 'Welcome@123',
+        phone_number: '1234567890',
         role: 'Admin',
-      });
-      console.log('Created default admin user: admin@erp.com / password123');
-    }
+      },
+      {
+        name: 'Sales Manager',
+        email: 'sales@erp.com',
+        password: 'Welcome@123',
+        phone_number: '2345678901',
+        role: 'Sales_Manager',
+      },
+      {
+        name: 'Purchase Manager',
+        email: 'purchase@erp.com',
+        password: 'Welcome@123',
+        phone_number: '3456789012',
+        role: 'Purchase_Manager',
+      },
+      {
+        name: 'Inventory Manager',
+        email: 'inventory@erp.com',
+        password: 'Welcome@123',
+        phone_number: '4567890123',
+        role: 'Inventory_Manager',
+      },
+      {
+        name: 'Praveen Kumar (Customer)',
+        email: 'praveen@gmail.com',
+        password: 'Welcome@123',
+        phone_number: '9876543210',
+        role: 'Customer',
+      },
+      {
+        name: 'Neha Sharma (Customer)',
+        email: 'neha@gmail.com',
+        password: 'Welcome@123',
+        phone_number: '8765432109',
+        role: 'Customer',
+      },
+      {
+        name: 'Amit Patel (Customer)',
+        email: 'amit@gmail.com',
+        password: 'Welcome@123',
+        phone_number: '7654321098',
+        role: 'Customer',
+      },
+      {
+        name: 'Kirana Supplier',
+        email: 'wholesale@kirana.com',
+        password: 'Welcome@123',
+        phone_number: '9988776655',
+        role: 'Supplier',
+      },
+    ]);
+    const adminUser = users[0];
+    console.log('User accounts seeded successfully.');
 
     console.log('Seeding products...');
     const products = await Product.insertMany([
