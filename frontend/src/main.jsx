@@ -7,9 +7,18 @@ import axios from 'axios';
 
 // Dynamic API URL redirection for production deployments (e.g., Render/Vercel)
 axios.interceptors.request.use((config) => {
-  const apiBase = import.meta.env.VITE_API_URL;
-  if (apiBase && config.url && config.url.startsWith('http://127.0.0.1:9999')) {
-    config.url = config.url.replace('http://127.0.0.1:9999', apiBase);
+  let apiBase = import.meta.env.VITE_API_URL;
+  if (apiBase) {
+    // Sanitize apiBase: strip trailing slash and '/api' prefix to prevent double /api/api paths
+    if (apiBase.endsWith('/')) {
+      apiBase = apiBase.slice(0, -1);
+    }
+    if (apiBase.endsWith('/api')) {
+      apiBase = apiBase.slice(0, -4);
+    }
+    if (config.url && config.url.startsWith('http://127.0.0.1:9999')) {
+      config.url = config.url.replace('http://127.0.0.1:9999', apiBase);
+    }
   }
   return config;
 });
