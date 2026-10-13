@@ -29,9 +29,9 @@ const GRNs = () => {
         axios.get('http://127.0.0.1:9999/api/purchase-orders'),
       ]);
       setGrns(grnRes.data.grns || []); // Fixed: extract nested grns array
-      // Filter POs to show only ones that are ordered/shipped (pending delivery)
+      // Filter POs to show only ones that are pending, processing, or shipped (not yet delivered or cancelled)
       const pendingPOs = (poRes.data.orders || []).filter(
-        (po) => po.status === 'Ordered' || po.status === 'Shipped'
+        (po) => ['Pending', 'Processing', 'Shipped'].includes(po.status)
       );
       setPurchaseOrders(pendingPOs);
     } catch (error) {

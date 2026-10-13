@@ -1,22 +1,37 @@
+import mongoose from 'mongoose';
 import SalesOrder from '../models/SalesOrder.js';
 import Product from '../models/Product.js';
 import Customer from '../models/Customer.js';
 import Contact from '../models/Contact.js';
 
+// Valid status transitions state machine for Sales Orders
+const VALID_STATUS_TRANSITIONS = {
+  Pending: ['Processing', 'Cancelled'],
+  Processing: ['Shipped', 'Cancelled'],
+  Shipped: ['Delivered'],
+  Delivered: [], // Terminal status
+  Cancelled: [], // Terminal status
+};
+
 // @desc    Create a new Sales Order
 // @route   POST /api/sales-orders
-// @access  Private (Admin, Sales_Manager)
+// @access  Private (Admin, Sales_Manager, Customer)
 export const createSalesOrder = async (req, res) => {
+  const session = await mongoose.startSession();
   try {
     const { customer, products, remarks } = req.body;
 
-    // 1. Verify customer exists
+    // 1. Validate customer existence
+    if (!customer) {
+      return res.status(400).json({ message: 'Customer ID is required' });
+    }
+
     const customerExists = await Customer.findById(customer);
     if (!customerExists) {
       return res.status(404).json({ message: 'Customer not found' });
     }
 
-    // Verify Customer matches logged in user's profile
+    // Customer role RBAC check: Customers can only create orders for their own account
     if (req.user && req.user.role === 'Customer') {
       const contact = await Contact.findOne({ email: req.user.email });
       const customerDoc = await Customer.findOne({ contactInfo: contact?._id });
@@ -25,54 +40,91 @@ export const createSalesOrder = async (req, res) => {
       }
     }
 
-    // 2. Validate products array and check stock levels
+    // 2. Validate products input
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ message: 'Sales Order must contain at least one product line item' });
+    }
+
     const finalProducts = [];
+    let calculatedTotal = 0;
+
     for (const item of products) {
+      if (!item.product) {
+        return res.status(400).json({ message: 'Each order item must specify a valid product ID' });
+      }
+
+      const qty = parseInt(item.quantity, 10);
+      if (isNaN(qty) || qty <= 0) {
+        return res.status(400).json({ message: 'Product quantities must be positive integers greater than 0' });
+      }
+
       const product = await Product.findById(item.product);
-      
       if (!product) {
         return res.status(404).json({ message: `Product not found with ID ${item.product}` });
       }
 
-      // Check stock level
-      if (product.stock < item.quantity) {
-        return res.status(400).json({ 
-          message: `Insufficient stock for product: "${product.name}". Available: ${product.stock}, Requested: ${item.quantity}` 
+      if (product.stock < qty) {
+        return res.status(400).json({
+          message: `Insufficient stock for product "${product.name}". Available: ${product.stock}, Requested: ${qty}`,
         });
       }
 
-      // Lock the price using the active product price in database
+      // Lock price server-side from canonical database catalog
       finalProducts.push({
-        product: item.product,
-        quantity: item.quantity,
-        price: product.price, // Lock price from database
+        product: product._id,
+        quantity: qty,
+        price: product.price,
       });
+      calculatedTotal += qty * product.price;
     }
 
-    // 3. Create the Sales Order record
-    const salesOrder = await SalesOrder.create({
-      customer,
-      products: finalProducts,
-      remarks,
-      createdBy: req.user._id, // Set by protect middleware
+    // 3. Atomically create order and deduct stock in MongoDB ACID Transaction
+    let createdOrderId = null;
+    await session.withTransaction(async () => {
+      // Step A: Atomically deduct stock using concurrency guard ($gte)
+      for (const item of finalProducts) {
+        const updated = await Product.findOneAndUpdate(
+          { _id: item.product, stock: { $gte: item.quantity } },
+          { $inc: { stock: -item.quantity } },
+          { session, new: true }
+        );
+
+        if (!updated) {
+          throw new Error(`Concurrency conflict: insufficient stock during checkout for product ID ${item.product}`);
+        }
+      }
+
+      // Step B: Insert Sales Order record
+      const [order] = await SalesOrder.create(
+        [
+          {
+            customer,
+            products: finalProducts,
+            TotalAmount: calculatedTotal,
+            status: 'Pending',
+            paymentStatus: 'unpaid',
+            remarks,
+            createdBy: req.user._id,
+          },
+        ],
+        { session }
+      );
+      createdOrderId = order._id;
     });
 
-    // 4. Deduct quantities from warehouse stock
-    for (const item of finalProducts) {
-      await Product.findByIdAndUpdate(item.product, {
-        $inc: { stock: -item.quantity } // Decrement stock
-      });
-    }
+    await session.endSession();
 
-    // Return populated order
-    const populatedOrder = await SalesOrder.findById(salesOrder._id)
+    // 4. Return populated order
+    const populatedOrder = await SalesOrder.findById(createdOrderId)
       .populate('customer')
       .populate('products.product')
       .populate('createdBy', 'name email');
 
     res.status(201).json(populatedOrder);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    await session.endSession();
+    console.error('Error creating sales order:', error);
+    res.status(500).json({ message: error.message || 'Transaction aborted: failed to create Sales Order' });
   }
 };
 
@@ -99,6 +151,10 @@ export const getSalesOrders = async (req, res) => {
           totalOrders: 0,
         });
       }
+    }
+
+    if (req.query.status) {
+      filter.status = req.query.status;
     }
 
     const total = await SalesOrder.countDocuments(filter);
@@ -149,10 +205,71 @@ export const getSalesOrderById = async (req, res) => {
   }
 };
 
+// @desc    Update Sales Order status with state-machine validation
+// @route   PUT /api/sales-orders/:id/status
+// @access  Private (Admin, Sales_Manager)
+export const updateSalesOrderStatus = async (req, res) => {
+  const session = await mongoose.startSession();
+  try {
+    const { status, paymentStatus } = req.body;
+    const order = await SalesOrder.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ message: 'Sales Order not found' });
+    }
+
+    // Validate status transition if status is being updated
+    if (status && status !== order.status) {
+      const allowedNextStates = VALID_STATUS_TRANSITIONS[order.status] || [];
+      if (!allowedNextStates.includes(status)) {
+        return res.status(400).json({
+          message: `Invalid status transition from "${order.status}" to "${status}". Allowed transitions: [${allowedNextStates.join(', ') || 'None (Terminal state)'}]`,
+        });
+      }
+
+      await session.withTransaction(async () => {
+        // If order is transitioning to Cancelled, atomically restore warehouse stock
+        if (status === 'Cancelled') {
+          for (const item of order.products) {
+            await Product.findByIdAndUpdate(
+              item.product,
+              { $inc: { stock: item.quantity } },
+              { session }
+            );
+          }
+        }
+
+        order.status = status;
+        if (paymentStatus) {
+          order.paymentStatus = paymentStatus;
+        }
+        await order.save({ session });
+      });
+    } else if (paymentStatus) {
+      order.paymentStatus = paymentStatus;
+      await order.save();
+    }
+
+    await session.endSession();
+
+    const updatedOrder = await SalesOrder.findById(order._id)
+      .populate('customer')
+      .populate('products.product')
+      .populate('createdBy', 'name email');
+
+    res.status(200).json(updatedOrder);
+  } catch (error) {
+    await session.endSession();
+    console.error('Error updating sales order status:', error);
+    res.status(500).json({ message: error.message || 'Failed to update sales order status' });
+  }
+};
+
 // @desc    Cancel a Sales Order (Restores Stock back to warehouse)
 // @route   PUT /api/sales-orders/:id/cancel
-// @access  Private (Admin, Sales_Manager)
+// @access  Private (Admin, Sales_Manager, Customer)
 export const cancelSalesOrder = async (req, res) => {
+  const session = await mongoose.startSession();
   try {
     const order = await SalesOrder.findById(req.params.id);
 
@@ -173,18 +290,30 @@ export const cancelSalesOrder = async (req, res) => {
       return res.status(400).json({ message: 'Order is already cancelled' });
     }
 
-    // Restore stock quantities back to Product collection
-    for (const item of order.products) {
-      await Product.findByIdAndUpdate(item.product, {
-        $inc: { stock: item.quantity } // Add back the items
-      });
+    if (order.status === 'Delivered') {
+      return res.status(400).json({ message: 'Cannot cancel an order that has already been delivered' });
     }
 
-    order.status = 'Cancelled';
-    await order.save();
+    await session.withTransaction(async () => {
+      // Restore stock quantities back to Product collection
+      for (const item of order.products) {
+        await Product.findByIdAndUpdate(
+          item.product,
+          { $inc: { stock: item.quantity } },
+          { session }
+        );
+      }
+
+      order.status = 'Cancelled';
+      await order.save({ session });
+    });
+
+    await session.endSession();
 
     res.status(200).json({ message: 'Sales Order cancelled successfully, stock restored', order });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    await session.endSession();
+    console.error('Error cancelling sales order:', error);
+    res.status(500).json({ message: error.message || 'Failed to cancel sales order' });
   }
 };

@@ -103,6 +103,16 @@ const SalesOrders = () => {
     }
   };
 
+  // Status Progression Handler for Managers
+  const handleUpdateStatus = async (id, newStatus) => {
+    try {
+      await axios.put(`http://127.0.0.1:9999/api/sales-orders/${id}/status`, { status: newStatus });
+      fetchData();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Error updating status');
+    }
+  };
+
   const handleViewDetails = (order) => {
     setSelectedOrder(order);
     setIsDetailModalOpen(true);
@@ -174,10 +184,13 @@ const SalesOrders = () => {
               ) : (
                 orders.map((order) => {
                   const statusColors = {
-                    Pending: 'bg-amber-50 text-amber-700 border-amber-100',
-                    Completed: 'bg-green-50 text-green-700 border-green-100',
-                    Cancelled: 'bg-red-50 text-red-700 border-red-100',
+                    Pending: 'bg-amber-50 text-amber-700 border-amber-200',
+                    Processing: 'bg-blue-50 text-blue-700 border-blue-200',
+                    Shipped: 'bg-purple-50 text-purple-700 border-purple-200',
+                    Delivered: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                    Cancelled: 'bg-red-50 text-red-700 border-red-200',
                   };
+                  const isManager = ['Admin', 'Sales_Manager'].includes(user?.role);
                   return (
                     <tr key={order._id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="p-4 font-mono font-bold text-gray-900 text-xs">
@@ -185,7 +198,7 @@ const SalesOrders = () => {
                       </td>
                       <td className="p-4 font-semibold">{order.customer?.name || '—'}</td>
                       <td className="p-4 text-center">
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${statusColors[order.status]}`}>
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${statusColors[order.status] || 'bg-gray-50 text-gray-600'}`}>
                           {order.status}
                         </span>
                       </td>
@@ -197,16 +210,45 @@ const SalesOrders = () => {
                         </span>
                       </td>
                       <td className="p-4 text-right font-black text-gray-900">${order.TotalAmount?.toFixed(2)}</td>
-                      <td className="p-4 flex items-center justify-center space-x-2">
+                      <td className="p-4 flex items-center justify-center space-x-1.5">
                         <button
                           onClick={() => handleViewDetails(order)}
+                          title="View Details"
                           className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded cursor-pointer"
                         >
                           <VisibilityIcon className="!w-5 !h-5" />
                         </button>
-                        {order.status === 'Pending' && canCancelOrder(order) && (
+                        {isManager && order.status === 'Pending' && (
+                          <button
+                            onClick={() => handleUpdateStatus(order._id, 'Processing')}
+                            title="Advance to Processing"
+                            className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs rounded border border-blue-200 cursor-pointer"
+                          >
+                            Process ➜
+                          </button>
+                        )}
+                        {isManager && order.status === 'Processing' && (
+                          <button
+                            onClick={() => handleUpdateStatus(order._id, 'Shipped')}
+                            title="Mark as Shipped"
+                            className="px-2 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100 font-bold text-xs rounded border border-purple-200 cursor-pointer"
+                          >
+                            Ship ➜
+                          </button>
+                        )}
+                        {isManager && order.status === 'Shipped' && (
+                          <button
+                            onClick={() => handleUpdateStatus(order._id, 'Delivered')}
+                            title="Mark as Delivered"
+                            className="px-2 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold text-xs rounded border border-emerald-200 cursor-pointer"
+                          >
+                            Deliver ✓
+                          </button>
+                        )}
+                        {['Pending', 'Processing'].includes(order.status) && canCancelOrder(order) && (
                           <button
                             onClick={() => handleCancelOrder(order._id)}
+                            title="Cancel Order"
                             className="p-1.5 hover:bg-red-50 text-red-600 rounded cursor-pointer"
                           >
                             <CancelIcon className="!w-5 !h-5" />
