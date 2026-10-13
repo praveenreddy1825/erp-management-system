@@ -3,6 +3,8 @@ import SalesOrder from '../models/SalesOrder.js';
 import Product from '../models/Product.js';
 import Customer from '../models/Customer.js';
 import Contact from '../models/Contact.js';
+import User from '../models/User.js';
+import { runTransaction } from '../utils/transactionHelper.js';
 
 // Valid status transitions state machine for Sales Orders
 const VALID_STATUS_TRANSITIONS = {
@@ -17,7 +19,6 @@ const VALID_STATUS_TRANSITIONS = {
 // @route   POST /api/sales-orders
 // @access  Private (Admin, Sales_Manager, Customer)
 export const createSalesOrder = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const { customer, products, remarks } = req.body;
 
@@ -78,15 +79,18 @@ export const createSalesOrder = async (req, res) => {
       calculatedTotal += qty * product.price;
     }
 
-    // 3. Atomically create order and deduct stock in MongoDB ACID Transaction
+    // 3. Create order and deduct stock (with transaction if replica set/Atlas, or direct if standalone)
     let createdOrderId = null;
-    await session.withTransaction(async () => {
+    await runTransaction(async (session) => {
+      const opts = session ? { session, new: true } : { new: true };
+      const createOpts = session ? { session } : {};
+
       // Step A: Atomically deduct stock using concurrency guard ($gte)
       for (const item of finalProducts) {
         const updated = await Product.findOneAndUpdate(
           { _id: item.product, stock: { $gte: item.quantity } },
           { $inc: { stock: -item.quantity } },
-          { session, new: true }
+          opts
         );
 
         if (!updated) {
@@ -107,12 +111,10 @@ export const createSalesOrder = async (req, res) => {
             createdBy: req.user._id,
           },
         ],
-        { session }
+        createOpts
       );
       createdOrderId = order._id;
     });
-
-    await session.endSession();
 
     // 4. Return populated order
     const populatedOrder = await SalesOrder.findById(createdOrderId)
@@ -122,9 +124,8 @@ export const createSalesOrder = async (req, res) => {
 
     res.status(201).json(populatedOrder);
   } catch (error) {
-    await session.endSession();
     console.error('Error creating sales order:', error);
-    res.status(500).json({ message: error.message || 'Transaction aborted: failed to create Sales Order' });
+    res.status(500).json({ message: error.message || 'Failed to create Sales Order' });
   }
 };
 
@@ -209,7 +210,6 @@ export const getSalesOrderById = async (req, res) => {
 // @route   PUT /api/sales-orders/:id/status
 // @access  Private (Admin, Sales_Manager)
 export const updateSalesOrderStatus = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const { status, paymentStatus } = req.body;
     const order = await SalesOrder.findById(req.params.id);
@@ -227,14 +227,15 @@ export const updateSalesOrderStatus = async (req, res) => {
         });
       }
 
-      await session.withTransaction(async () => {
+      await runTransaction(async (session) => {
         // If order is transitioning to Cancelled, atomically restore warehouse stock
         if (status === 'Cancelled') {
+          const opts = session ? { session } : {};
           for (const item of order.products) {
             await Product.findByIdAndUpdate(
               item.product,
               { $inc: { stock: item.quantity } },
-              { session }
+              opts
             );
           }
         }
@@ -243,14 +244,12 @@ export const updateSalesOrderStatus = async (req, res) => {
         if (paymentStatus) {
           order.paymentStatus = paymentStatus;
         }
-        await order.save({ session });
+        await (session ? order.save({ session }) : order.save());
       });
     } else if (paymentStatus) {
       order.paymentStatus = paymentStatus;
       await order.save();
     }
-
-    await session.endSession();
 
     const updatedOrder = await SalesOrder.findById(order._id)
       .populate('customer')
@@ -259,7 +258,6 @@ export const updateSalesOrderStatus = async (req, res) => {
 
     res.status(200).json(updatedOrder);
   } catch (error) {
-    await session.endSession();
     console.error('Error updating sales order status:', error);
     res.status(500).json({ message: error.message || 'Failed to update sales order status' });
   }
@@ -269,7 +267,6 @@ export const updateSalesOrderStatus = async (req, res) => {
 // @route   PUT /api/sales-orders/:id/cancel
 // @access  Private (Admin, Sales_Manager, Customer)
 export const cancelSalesOrder = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const order = await SalesOrder.findById(req.params.id);
 
@@ -294,25 +291,23 @@ export const cancelSalesOrder = async (req, res) => {
       return res.status(400).json({ message: 'Cannot cancel an order that has already been delivered' });
     }
 
-    await session.withTransaction(async () => {
+    await runTransaction(async (session) => {
+      const opts = session ? { session } : {};
       // Restore stock quantities back to Product collection
       for (const item of order.products) {
         await Product.findByIdAndUpdate(
           item.product,
           { $inc: { stock: item.quantity } },
-          { session }
+          opts
         );
       }
 
       order.status = 'Cancelled';
-      await order.save({ session });
+      await (session ? order.save({ session }) : order.save());
     });
-
-    await session.endSession();
 
     res.status(200).json({ message: 'Sales Order cancelled successfully, stock restored', order });
   } catch (error) {
-    await session.endSession();
     console.error('Error cancelling sales order:', error);
     res.status(500).json({ message: error.message || 'Failed to cancel sales order' });
   }

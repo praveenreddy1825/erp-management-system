@@ -2,12 +2,13 @@ import mongoose from 'mongoose';
 import GRN from '../models/GRN.js';
 import PurchaseOrder from '../models/PurchaseOrder.js';
 import Product from '../models/Product.js';
+import User from '../models/User.js';
+import { runTransaction } from '../utils/transactionHelper.js';
 
 // @desc    Create a new Goods Receipt Note (GRN) & update inventory stock
 // @route   POST /api/grns
 // @access  Private (Admin, Inventory_Manager)
 export const createGRN = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const { purchaseOrder, productsReceived, remarks } = req.body;
 
@@ -61,8 +62,8 @@ export const createGRN = async (req, res) => {
 
       // Check if product was ordered on this PO
       if (!orderedQtyMap[prodId]) {
-        return res.status(400).json({ 
-          message: `Product with ID ${item.product} was not included in this Purchase Order` 
+        return res.status(400).json({
+          message: `Product with ID ${item.product} was not included in this Purchase Order`,
         });
       }
 
@@ -78,7 +79,7 @@ export const createGRN = async (req, res) => {
       // Over-receipt protection: Cannot intake more than remaining balance
       if (receivedQty > remainingAllowed) {
         return res.status(400).json({
-          message: `Received quantity (${receivedQty}) exceeds remaining order balance (${remainingAllowed}) for product ${item.product}. Total ordered: ${orderedQty}, already received: ${previouslyReceived}.`
+          message: `Received quantity (${receivedQty}) exceeds remaining order balance (${remainingAllowed}) for product ${item.product}. Total ordered: ${orderedQty}, already received: ${previouslyReceived}.`,
         });
       }
 
@@ -89,10 +90,13 @@ export const createGRN = async (req, res) => {
       }
     }
 
-    // 6. Execute atomic operations inside MongoDB ACID Transaction
+    // 6. Execute atomic operations (using transaction if replica set/Atlas, or direct if standalone)
     let createdGrnId = null;
-    await session.withTransaction(async () => {
-      // Step A: Create GRN Document within session
+    await runTransaction(async (session) => {
+      const createOpts = session ? { session } : {};
+      const opts = session ? { session } : {};
+
+      // Step A: Create GRN Document
       const [newGrn] = await GRN.create(
         [
           {
@@ -107,7 +111,7 @@ export const createGRN = async (req, res) => {
             status: 'Received',
           },
         ],
-        { session }
+        createOpts
       );
       createdGrnId = newGrn._id;
 
@@ -116,11 +120,11 @@ export const createGRN = async (req, res) => {
         await Product.findByIdAndUpdate(
           item.product,
           { $inc: { stock: Number(item.quantity) } },
-          { session }
+          opts
         );
       }
 
-      // Step C: Calculate cumulative totals (past + current) to evaluate full vs partial delivery
+      // Step C: Calculate cumulative totals to evaluate full vs partial delivery
       const cumulativeReceivedMap = { ...pastReceivedQtyMap };
       productsReceived.forEach((item) => {
         const prodId = item.product.toString();
@@ -139,10 +143,8 @@ export const createGRN = async (req, res) => {
 
       // Step D: Transition Purchase Order status based on completion
       po.status = allFullyReceived ? 'Delivered' : 'Processing';
-      await po.save({ session });
+      await (session ? po.save({ session }) : po.save());
     });
-
-    await session.endSession();
 
     // 7. Return populated result
     const populatedGRN = await GRN.findById(createdGrnId)
@@ -155,9 +157,8 @@ export const createGRN = async (req, res) => {
 
     res.status(201).json(populatedGRN);
   } catch (error) {
-    await session.endSession();
     console.error('Error creating GRN:', error);
-    res.status(500).json({ message: error.message || 'Transaction aborted: failed to create GRN' });
+    res.status(500).json({ message: error.message || 'Failed to create Goods Receipt Note' });
   }
 };
 

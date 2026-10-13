@@ -2,6 +2,7 @@ import PurchaseOrder from '../models/PurchaseOrder.js';
 import Product from '../models/Product.js';
 import Supplier from '../models/Supplier.js';
 import Contact from '../models/Contact.js';
+import User from '../models/User.js';
 
 // Valid status transitions state machine for Purchase Orders
 const VALID_PO_TRANSITIONS = {

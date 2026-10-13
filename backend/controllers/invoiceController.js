@@ -2,6 +2,7 @@ import Invoice from '../models/Invoice.js';
 import SalesOrder from '../models/SalesOrder.js';
 import Contact from '../models/Contact.js';
 import Customer from '../models/Customer.js';
+import User from '../models/User.js';
 
 // @desc    Create a new Invoice for a Sales Order
 // @route   POST /api/invoices
