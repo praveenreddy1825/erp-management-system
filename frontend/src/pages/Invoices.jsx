@@ -190,7 +190,7 @@ const Invoices = () => {
               setRemarks('');
               setIsCreateModalOpen(true);
             }}
-            className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-emerald-955 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer"
+            className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer"
           >
             + Generate Invoice
           </button>
@@ -303,7 +303,7 @@ const Invoices = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-yellow-400 hover:bg-yellow-500 text-emerald-955 font-black rounded-lg text-sm shadow-md shadow-yellow-500/10 transition-all cursor-pointer"
+                  className="px-5 py-2 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/10 transition-all cursor-pointer"
                 >
                   Create Invoice
                 </button>
@@ -366,7 +366,7 @@ const Invoices = () => {
               <div className="border-t border-gray-150 pt-4 flex justify-between items-center">
                 <button
                   onClick={() => handleExportPDF(selectedInvoice)}
-                  className="px-4 py-2 border border-yellow-400 text-emerald-955 bg-yellow-400 hover:bg-yellow-500 text-xs font-bold rounded flex items-center space-x-1.5 shadow-md shadow-yellow-500/10 cursor-pointer"
+                  className="px-4 py-2 border border-yellow-400 text-stone-950 bg-yellow-400 hover:bg-yellow-500 text-xs font-bold rounded flex items-center space-x-1.5 shadow-md shadow-yellow-500/10 cursor-pointer"
                 >
                   <DownloadIcon className="!w-4 !h-4" />
                   <span>Download PDF Document</span>

@@ -123,7 +123,7 @@ const GRNs = () => {
               setRemarks('');
               setIsCreateModalOpen(true);
             }}
-            className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-emerald-955 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer"
+            className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer"
           >
             + New Goods Receipt Note
           </button>
@@ -268,7 +268,7 @@ const GRNs = () => {
                 <button
                   type="submit"
                   disabled={!selectedPoDetails}
-                  className="px-5 py-2 bg-yellow-400 hover:bg-yellow-500 text-emerald-955 font-black rounded-lg text-sm shadow-md shadow-yellow-500/10 transition-all cursor-pointer disabled:opacity-50"
+                  className="px-5 py-2 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/10 transition-all cursor-pointer disabled:opacity-50"
                 >
                   Post GRN & Intake Stock
                 </button>

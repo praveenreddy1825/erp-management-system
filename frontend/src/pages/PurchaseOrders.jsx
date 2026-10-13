@@ -129,7 +129,7 @@ const PurchaseOrders = () => {
               setItems([{ product: '', quantity: 1 }]);
               setIsCreateModalOpen(true);
             }}
-            className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-emerald-955 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer"
+            className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer"
           >
             + Create Purchase Order
           </button>
@@ -313,7 +313,7 @@ const PurchaseOrders = () => {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 bg-yellow-400 hover:bg-yellow-500 text-emerald-955 font-black rounded-lg text-sm shadow-md shadow-yellow-500/10 transition-all cursor-pointer"
+                    className="px-5 py-2 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/10 transition-all cursor-pointer"
                   >
                     Submit PO
                   </button>
