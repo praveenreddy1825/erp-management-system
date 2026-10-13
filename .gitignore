@@ -8,6 +8,7 @@ frontend/node_modules/
 backend/.env
 frontend/.env
 
+
 # Production Builds
 dist/
 frontend/dist/
