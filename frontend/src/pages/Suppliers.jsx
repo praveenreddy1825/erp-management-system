@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext.jsx';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PostAddIcon from '@mui/icons-material/PostAdd';
 
 const Suppliers = () => {
   const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
   const [suppliers, setSuppliers] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -172,20 +175,32 @@ const Suppliers = () => {
                     <td className="p-4 text-gray-600 truncate max-w-xs">{supp.contactInfo?.address?.street || '—'}</td>
                     {showActions && (
                       <td className="p-4 flex items-center justify-center space-x-2">
+                        {['Admin', 'Purchase_Manager'].includes(user?.role) && (
+                          <button
+                            onClick={() => navigate('/purchase-orders')}
+                            title="Issue Purchase Order to this Vendor"
+                            className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded text-xs font-bold flex items-center space-x-1 cursor-pointer transition-all"
+                          >
+                            <PostAddIcon className="!w-3.5 !h-3.5 text-amber-700" />
+                            <span>+ Issue PO</span>
+                          </button>
+                        )}
                         {canEditSupplier(supp) && (
                           <button
                             onClick={() => handleEditOpen(supp)}
-                            className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded transition-colors cursor-pointer"
+                            className="p-1.5 hover:bg-stone-100 text-stone-600 rounded transition-colors cursor-pointer"
+                            title="Edit Supplier Profile"
                           >
-                            <EditIcon className="!w-5 !h-5" />
+                            <EditIcon className="!w-4 !h-4" />
                           </button>
                         )}
                         {canDeleteSupplier && (
                           <button
                             onClick={() => handleDelete(supp._id)}
-                            className="p-1.5 hover:bg-red-50 text-red-600 rounded transition-colors cursor-pointer"
+                            className="p-1.5 hover:bg-rose-50 text-rose-600 rounded transition-colors cursor-pointer"
+                            title="Delete Supplier"
                           >
-                            <DeleteIcon className="!w-5 !h-5" />
+                            <DeleteIcon className="!w-4 !h-4" />
                           </button>
                         )}
                       </td>

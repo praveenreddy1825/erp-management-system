@@ -20,7 +20,7 @@ const VALID_STATUS_TRANSITIONS = {
 // @access  Private (Admin, Sales_Manager, Customer)
 export const createSalesOrder = async (req, res) => {
   try {
-    const { customer, products, remarks } = req.body;
+    const { customer, products, remarks, paymentStatus } = req.body;
 
     // 1. Validate customer existence
     if (!customer) {
@@ -106,7 +106,7 @@ export const createSalesOrder = async (req, res) => {
             products: finalProducts,
             TotalAmount: calculatedTotal,
             status: 'Pending',
-            paymentStatus: 'unpaid',
+            paymentStatus: paymentStatus || 'unpaid',
             remarks,
             createdBy: req.user._id,
           },

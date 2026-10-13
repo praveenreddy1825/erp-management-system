@@ -18,7 +18,7 @@ const VALID_PO_TRANSITIONS = {
 // @access  Private (Admin, Purchase_Manager)
 export const createPurchaseOrder = async (req, res) => {
   try {
-    const { supplier, products, remarks } = req.body;
+    const { supplier, products, remarks, paymentStatus } = req.body;
 
     // 1. Verify supplier input
     if (!supplier) {
@@ -72,7 +72,7 @@ export const createPurchaseOrder = async (req, res) => {
       products: finalProducts,
       TotalAmount: calculatedTotal,
       status: 'Pending',
-      paymentStatus: 'unpaid',
+      paymentStatus: paymentStatus || 'unpaid',
       remarks,
       createdBy: req.user._id, // Attached by protect middleware
     });
