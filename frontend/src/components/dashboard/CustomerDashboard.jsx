@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import ShoppingBagIcon from '@mui/icons-material/ShoppingBag';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -81,11 +82,14 @@ const CustomerDashboard = ({ user }) => {
       <div className="bg-emerald-900 text-white p-6 rounded-xl border border-emerald-950 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm">
         <div>
           <h1 className="text-xl font-bold font-sans">Welcome Back, {user?.name}!</h1>
-          <p className="text-emerald-100 text-xs mt-1">Review your sales order tracking, invoices, and accounting summary details.</p>
+          <p className="text-emerald-100 text-xs mt-1">Review your sales order tracking, invoices, and browse our instant delivery store.</p>
         </div>
-        <button className="px-4 py-2 bg-yellow-400 hover:bg-yellow-500 text-emerald-955 text-xs font-black rounded-lg transition-colors cursor-pointer">
-          New Sales Quote
-        </button>
+        <Link
+          to="/products"
+          className="px-4 py-2 bg-yellow-400 hover:bg-yellow-500 text-stone-950 text-xs font-black rounded-lg transition-colors cursor-pointer flex items-center space-x-1.5 shadow-sm"
+        >
+          <span>🛒 Browse Store & Place Order</span>
+        </Link>
       </div>
 
       {/* KPI metrics */}

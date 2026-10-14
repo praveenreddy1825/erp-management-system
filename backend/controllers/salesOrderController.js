@@ -42,22 +42,32 @@ export const createSalesOrder = async (req, res) => {
     const { customer, products, items, remarks, paymentStatus } = req.body;
     const productsList = products || items;
 
-    // 1. Validate customer existence & ownership
-    if (!customer) {
-      return res.status(400).json({ message: 'Customer ID is required' });
-    }
-
-    const customerExists = await Customer.findById(customer);
-    if (!customerExists) {
-      return res.status(404).json({ message: 'Customer not found' });
-    }
-
+    // 1. Validate customer existence & ownership (auto-resolves for Customer role)
+    let customerDoc = null;
     if (req.user && req.user.role === 'Customer') {
-      const contact = await Contact.findOne({ email: req.user.email });
-      const customerDoc = await Customer.findOne({ contactInfo: contact?._id });
-      if (!customerDoc || customer !== customerDoc._id.toString()) {
-        return res.status(403).json({ message: 'Not authorized to create Sales Orders for other customers' });
+      let contact = await Contact.findOne({ email: req.user.email.toLowerCase().trim() });
+      if (contact) {
+        customerDoc = await Customer.findOne({ contactInfo: contact._id });
       }
+      if (!customerDoc) {
+        if (!contact) {
+          contact = await Contact.create({
+            email: req.user.email.toLowerCase().trim(),
+            phone_number: req.user.phone_number || '+910000000000',
+            address: { street: 'Customer Delivery Address' },
+          });
+        }
+        customerDoc = await Customer.create({
+          name: req.user.name,
+          contactInfo: contact._id,
+        });
+      }
+    } else if (customer) {
+      customerDoc = await Customer.findById(customer);
+    }
+
+    if (!customerDoc) {
+      return res.status(400).json({ message: 'Customer ID or authenticated customer profile is required' });
     }
 
     // 2. Validate line items
@@ -110,7 +120,7 @@ export const createSalesOrder = async (req, res) => {
         [
           {
             soNumber,
-            customer,
+            customer: customerDoc._id,
             products: finalProducts,
             TotalAmount: calculatedTotal,
             status: 'Pending',
@@ -166,18 +176,15 @@ export const getSalesOrders = async (req, res) => {
 
     let filter = {};
     if (req.user.role === 'Customer') {
-      const contact = await Contact.findOne({ email: req.user.email });
-      const customer = await Customer.findOne({ contactInfo: contact?._id });
+      const emailPattern = new RegExp(`^${req.user.email.trim()}$`, 'i');
+      const contact = await Contact.findOne({ email: { $regex: emailPattern } });
+      const customer = contact ? await Customer.findOne({ contactInfo: contact._id }) : null;
+
+      const customerConditions = [{ createdBy: req.user._id }];
       if (customer) {
-        filter.customer = customer._id;
-      } else {
-        return res.status(200).json({
-          orders: [],
-          page: 1,
-          pages: 0,
-          totalOrders: 0,
-        });
+        customerConditions.push({ customer: customer._id });
       }
+      filter.$or = customerConditions;
     }
 
     if (req.query.status) {

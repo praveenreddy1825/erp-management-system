@@ -10,7 +10,7 @@ import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.route('/')
-  .get(protect, authorizeRoles('Admin', 'Sales_Manager', 'Purchase_Manager', 'Customer', 'Inventory_Manager'), getCustomers)
+  .get(protect, authorizeRoles('Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'), getCustomers)
   .post(protect, authorizeRoles('Admin', 'Sales_Manager'), createCustomer);
 
 router.route('/:id')

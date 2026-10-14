@@ -5,32 +5,43 @@ import Product from '../models/Product.js';
 // @access ---->Private
 export const getProducts = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 20;
     const skip = (page - 1) * limit;
 
     const query = {};
 
-    // 1. Search filter (checks name or SKU)
+    // 1. Search filter (checks name or SKU or category)
     if (req.query.search) {
       query.$or = [
-        { name: { $regex: req.query.search, $options: 'i' } },
-        { SKU: { $regex: req.query.search, $options: 'i' } }
+        { name: { $regex: req.query.search.trim(), $options: 'i' } },
+        { SKU: { $regex: req.query.search.trim(), $options: 'i' } },
+        { category: { $regex: req.query.search.trim(), $options: 'i' } },
       ];
     }
 
     // 2. Category filter
-    if (req.query.category) {
+    if (req.query.category && req.query.category !== 'All') {
       query.category = req.query.category;
     }
 
+    // Determine sorting: default to most recently updated / received items first
+    let sortObj = { updatedAt: -1, createdAt: -1 };
+    if (req.query.sortBy === 'name') sortObj = { name: 1 };
+    if (req.query.sortBy === 'price_asc') sortObj = { price: 1 };
+    if (req.query.sortBy === 'price_desc') sortObj = { price: -1 };
+    if (req.query.sortBy === 'stock_high') sortObj = { available: -1, stock: -1 };
+    if (req.query.sortBy === 'stock_low') sortObj = { available: 1, stock: 1 };
+
     // Fetch products and total count
     const total = await Product.countDocuments(query);
+    const categories = await Product.distinct('category');
 
     if (req.query.all === 'true' || req.query.limit === 'all' || parseInt(req.query.limit, 10) >= 1000) {
-      const products = await Product.find(query).sort({ name: 1 });
+      const products = await Product.find(query).sort(sortObj);
       return res.status(200).json({
         products,
+        categories,
         page: 1,
         pages: 1,
         totalProducts: total,
@@ -38,14 +49,15 @@ export const getProducts = async (req, res) => {
     }
 
     const products = await Product.find(query)
-      .sort({ createdAt: -1 })
+      .sort(sortObj)
       .skip(skip)
       .limit(limit);
 
     res.status(200).json({
       products,
+      categories,
       page,
-      pages: Math.ceil(total / limit),
+      pages: Math.ceil(total / limit) || 1,
       totalProducts: total,
     });
   } catch (error) {

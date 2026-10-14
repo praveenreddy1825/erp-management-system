@@ -84,10 +84,21 @@ export const getInvoices = async (req, res) => {
 
     let filter = {};
     if (req.user && req.user.role === 'Customer') {
-      const contact = await Contact.findOne({ email: req.user.email });
-      const customerDoc = await Customer.findOne({ contactInfo: contact?._id });
+      const emailPattern = new RegExp(`^${req.user.email.trim()}$`, 'i');
+      const contact = await Contact.findOne({ email: { $regex: emailPattern } });
+      const customerDoc = contact ? await Customer.findOne({ contactInfo: contact._id }) : null;
+
+      const userOrders = await SalesOrder.find({ createdBy: req.user._id }).select('_id');
+      const orClauses = [];
       if (customerDoc) {
-        filter.customer = customerDoc._id;
+        orClauses.push({ customer: customerDoc._id });
+      }
+      if (userOrders && userOrders.length > 0) {
+        orClauses.push({ salesOrder: { $in: userOrders.map((o) => o._id) } });
+      }
+
+      if (orClauses.length > 0) {
+        filter.$or = orClauses;
       } else {
         return res.status(200).json({
           invoices: [],

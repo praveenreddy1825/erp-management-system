@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext.jsx';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -46,9 +47,12 @@ const SalesOrders = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const isCust = user?.role === 'Customer';
       const [ordersRes, custRes, prodRes, invRes] = await Promise.all([
         axios.get('http://127.0.0.1:9999/api/sales-orders?limit=200'),
-        axios.get('http://127.0.0.1:9999/api/customers?limit=100'),
+        !isCust
+          ? axios.get('http://127.0.0.1:9999/api/customers?limit=100').catch(() => ({ data: { customers: [] } }))
+          : Promise.resolve({ data: { customers: [] } }),
         axios.get('http://127.0.0.1:9999/api/products?limit=100'),
         axios.get('http://127.0.0.1:9999/api/invoices?limit=200'),
       ]);
@@ -94,11 +98,11 @@ const SalesOrders = () => {
   // Submit Order Creation
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!customerId) return alert('Please select a customer.');
+    if (!customerId && !isCustomer) return alert('Please select a customer.');
 
     const payload = {
-      customer: customerId,
-      paymentStatus,
+      ...(customerId ? { customer: customerId } : {}),
+      paymentStatus: isCustomer ? 'unpaid' : paymentStatus,
       products: items.map((item) => ({
         product: item.product,
         quantity: parseInt(item.quantity, 10),
@@ -276,7 +280,8 @@ const SalesOrders = () => {
   const canCancelOrder = (order) => {
     if (isManager) return true;
     if (user?.role === 'Customer') {
-      return order.customer?.contactInfo?.email === user?.email;
+      const custEmail = order.customer?.contactInfo?.email || '';
+      return custEmail.toLowerCase() === user?.email?.toLowerCase() || order.createdBy?._id === user?._id || order.createdBy === user?._id;
     }
     return false;
   };
@@ -325,22 +330,37 @@ const SalesOrders = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Sales Orders & Payment Hub</h1>
-          <p className="text-gray-500 text-sm">Issue customer quotes, lock pricing, manage order fulfillment, and track incoming payment</p>
+          <h1 className="text-2xl font-bold text-gray-800">
+            {isCustomer ? 'My Orders & Deliveries' : 'Sales Orders & Payment Hub'}
+          </h1>
+          <p className="text-gray-500 text-sm">
+            {isCustomer
+              ? 'Track your order fulfillment, delivery progress, and download official invoices'
+              : 'Issue customer quotes, lock pricing, manage order fulfillment, and track incoming payment'}
+          </p>
         </div>
         {canWrite && (
-          <button
-            onClick={() => {
-              setCustomerId(isCustomer && customers.length > 0 ? customers[0]._id : '');
-              setPaymentStatus('unpaid');
-              setRemarks('');
-              setItems([{ product: '', quantity: 1 }]);
-              setIsCreateModalOpen(true);
-            }}
-            className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer flex items-center space-x-1.5"
-          >
-            <span>+ Create Sales Order</span>
-          </button>
+          isCustomer ? (
+            <Link
+              to="/products"
+              className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer flex items-center space-x-1.5"
+            >
+              <span>🛒 Browse Store & Order Items</span>
+            </Link>
+          ) : (
+            <button
+              onClick={() => {
+                setCustomerId(isCustomer && customers.length > 0 ? customers[0]._id : '');
+                setPaymentStatus('unpaid');
+                setRemarks('');
+                setItems([{ product: '', quantity: 1 }]);
+                setIsCreateModalOpen(true);
+              }}
+              className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer flex items-center space-x-1.5"
+            >
+              <span>+ Create Sales Order</span>
+            </button>
+          )
         )}
       </div>
 
@@ -436,7 +456,7 @@ const SalesOrders = () => {
             <thead>
               <tr className="bg-stone-50/80 border-b border-gray-100 text-gray-600 font-semibold text-xs uppercase tracking-wider">
                 <th className="p-4">Order ID</th>
-                <th className="p-4">Customer</th>
+                <th className="p-4">{isCustomer ? 'Recipient & Instructions' : 'Customer'}</th>
                 <th className="p-4 text-center">Fulfillment Status</th>
                 <th className="p-4 text-center">Payment Status & Action</th>
                 <th className="p-4 text-center">Commercial Invoice</th>
@@ -478,9 +498,16 @@ const SalesOrders = () => {
                         </span>
                       </td>
 
-                      {/* Customer */}
+                      {/* Customer / Recipient */}
                       <td className="p-4 font-semibold text-gray-900">
-                        {order.customer?.name || '—'}
+                        {isCustomer ? (
+                          <div>
+                            <span className="block text-stone-900 font-bold">{order.customer?.name || user?.name}</span>
+                            {order.remarks && <span className="block text-[11px] text-stone-500 line-clamp-1">{order.remarks}</span>}
+                          </div>
+                        ) : (
+                          order.customer?.name || '—'
+                        )}
                       </td>
 
                       {/* Fulfillment Status */}

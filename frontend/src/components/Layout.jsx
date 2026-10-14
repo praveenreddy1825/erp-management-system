@@ -26,13 +26,13 @@ const Layout = () => {
   // Define sidebar navigation items based on user roles
   const menuItems = [
     { text: 'Dashboard', path: '/dashboard', icon: <DashboardIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Customer', 'Supplier'] },
-    { text: 'Products', path: '/products', icon: <InventoryIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Customer'] },
-    { text: 'Customers', path: '/customers', icon: <PeopleIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Customer', 'Inventory_Manager'] },
+    { text: user?.role === 'Customer' ? 'Store & Products' : 'Products', path: '/products', icon: <InventoryIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Customer'] },
+    { text: 'Customers', path: '/customers', icon: <PeopleIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'] },
     { text: 'Suppliers', path: '/suppliers', icon: <LocalShippingIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'] },
-    { text: 'Sales Orders', path: '/sales-orders', icon: <ReceiptIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Customer', 'Inventory_Manager'] },
+    { text: user?.role === 'Customer' ? 'My Orders' : 'Sales Orders', path: '/sales-orders', icon: <ReceiptIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Customer', 'Inventory_Manager'] },
     { text: 'Purchase Orders', path: '/purchase-orders', icon: <AssignmentIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Supplier', 'Inventory_Manager'] },
     { text: 'GRNs', path: '/grns', icon: <InventoryIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'] },
-    { text: 'Invoices', path: '/invoices', icon: <ReceiptIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Customer', 'Inventory_Manager'] },
+    { text: user?.role === 'Customer' ? 'My Invoices' : 'Invoices', path: '/invoices', icon: <ReceiptIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Customer', 'Inventory_Manager'] },
     { text: 'Users', path: '/users', icon: <SupervisorAccountIcon />, roles: ['Admin'] },
   ];
 
