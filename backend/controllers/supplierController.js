@@ -7,15 +7,15 @@ import PurchaseOrder from '../models/PurchaseOrder.js';
 // @access  Private (Admin, Purchase_Manager, Inventory_Manager, Sales_Manager)
 export const getSuppliers = async (req, res) => {
   try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
-    const skip = (page - 1) * limit;
-
     const query = {};
 
     // Filter by active status if requested
     if (req.query.isActive !== undefined) {
-      query.isActive = req.query.isActive === 'true';
+      if (req.query.isActive === 'true') {
+        query.isActive = { $ne: false };
+      } else if (req.query.isActive === 'false') {
+        query.isActive = false;
+      }
     }
 
     // Search filter (checks supplier name)
@@ -25,9 +25,27 @@ export const getSuppliers = async (req, res) => {
 
     const total = await Supplier.countDocuments(query);
 
+    // If caller requests all suppliers (e.g. for PO dropdowns)
+    if (req.query.all === 'true' || req.query.limit === 'all' || parseInt(req.query.limit, 10) >= 1000) {
+      const suppliers = await Supplier.find(query)
+        .populate('contactInfo')
+        .sort({ name: 1 });
+
+      return res.status(200).json({
+        suppliers,
+        page: 1,
+        pages: 1,
+        totalSuppliers: total,
+      });
+    }
+
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const skip = (page - 1) * limit;
+
     const suppliers = await Supplier.find(query)
       .populate('contactInfo')
-      .sort({ createdAt: -1 })
+      .sort({ name: 1 })
       .skip(skip)
       .limit(limit);
 

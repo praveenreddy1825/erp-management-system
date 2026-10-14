@@ -26,6 +26,17 @@ export const getProducts = async (req, res) => {
 
     // Fetch products and total count
     const total = await Product.countDocuments(query);
+
+    if (req.query.all === 'true' || req.query.limit === 'all' || parseInt(req.query.limit, 10) >= 1000) {
+      const products = await Product.find(query).sort({ name: 1 });
+      return res.status(200).json({
+        products,
+        page: 1,
+        pages: 1,
+        totalProducts: total,
+      });
+    }
+
     const products = await Product.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
