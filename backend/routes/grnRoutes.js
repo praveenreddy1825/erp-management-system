@@ -9,7 +9,7 @@ import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.route('/')
-  .post(protect, authorizeRoles('Admin', 'Inventory_Manager'), createGRN)
+  .post(protect, authorizeRoles('Admin', 'Inventory_Manager', 'Purchase_Manager'), createGRN)
   .get(protect, authorizeRoles('Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'), getGRNs);
 
 router.route('/:id')

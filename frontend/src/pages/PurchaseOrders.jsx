@@ -324,10 +324,10 @@ const PurchaseOrders = () => {
     setTargetOrder(order);
     const outstanding = Math.max(0, order.TotalAmount - (order.paidAmount || 0));
     setPaymentData({
-      amount: outstanding > 0 ? outstanding.toFixed(2) : '',
+      amount: outstanding > 0 ? outstanding.toFixed(2) : (order.TotalAmount || 0).toFixed(2),
       paymentMethod: 'Bank Transfer',
-      reference: '',
-      notes: 'Payment disbursement to supplier',
+      reference: `DISB-${Date.now().toString().slice(-6)}`,
+      notes: 'Full payment disbursement to supplier vendor upon delivery verification',
     });
     setIsPaymentModalOpen(true);
   };
@@ -404,7 +404,23 @@ const PurchaseOrders = () => {
       await axios.post('http://127.0.0.1:9999/api/grns', payload);
       setIsGrnModalOpen(false);
       showToast('🎉 Goods Receipt Note registered! Accepted quantities added to warehouse inventory.');
-      fetchData();
+      await fetchData();
+
+      // Check if PO reached Delivered and prompt to disburse payment immediately
+      try {
+        const checkRes = await axios.get(`http://127.0.0.1:9999/api/purchase-orders/${targetOrder._id}`);
+        const updatedOrder = checkRes.data?.order || checkRes.data;
+        if (canWrite && updatedOrder?.status === 'Delivered' && updatedOrder?.paymentStatus !== 'Paid') {
+          const wantPay = window.confirm(
+            `Goods Receipt Note verified & PO #${updatedOrder.poNumber || updatedOrder._id.slice(-6)} is marked as Delivered!\n\nWould you like to record supplier payment disbursement ($${updatedOrder.TotalAmount?.toFixed(2)}) now?`
+          );
+          if (wantPay) {
+            handleOpenPayment(updatedOrder);
+          }
+        }
+      } catch (checkErr) {
+        console.warn('Could not auto-prompt payment disbursement:', checkErr);
+      }
     } catch (error) {
       alert(error.response?.data?.message || 'Error processing Goods Receipt Note');
     } finally {
