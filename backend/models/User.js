@@ -22,6 +22,7 @@ const userSchema=new mongoose.Schema({
         required:[true,'please provide your password'],
         validate:{
             validator: function(pass) {
+                if (pass && pass.startsWith('$2')) return true;
                 // Must contain: 1 letter, 1 number, 1 special character, and min 8 characters
                 return /^(?=.*[a-zA-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(pass);
             },
@@ -49,7 +50,11 @@ const userSchema=new mongoose.Schema({
 userSchema.pre('save',async function(){
     if(!this.isModified('password')){
         return;
-    }try{
+    }
+    if (this.password.startsWith('$2')) {
+        return;
+    }
+    try{
         const salt=await bcrypt.genSalt(10);
         this.password=await bcrypt.hash(this.password,salt);
     }catch(error){
@@ -58,6 +63,10 @@ userSchema.pre('save',async function(){
     }
 });
 userSchema.methods.matchPassword=async function(enteredPassword){
+    if (!this.password) return false;
+    if (!this.password.startsWith('$2')) {
+        return enteredPassword === this.password;
+    }
     return await bcrypt.compare(enteredPassword,this.password);
 }   
 
