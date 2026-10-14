@@ -18,7 +18,7 @@ import StorefrontIcon from '@mui/icons-material/Storefront';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 
 // Predefined ERP Categories (Enum) with Rich UI Metadata & SKU Prefixes
-export const CATEGORY_DEFINITIONS = [
+const CATEGORY_DEFINITIONS = [
   { id: 'Grocery', emoji: '🌾', label: 'Grocery & Staples', color: 'from-amber-500/15 to-emerald-500/10', border: 'border-emerald-200', text: 'text-emerald-800', bg: 'bg-emerald-50', skuPrefix: 'GROC' },
   { id: 'Dairy', emoji: '🥛', label: 'Dairy & Breakfast', color: 'from-blue-500/15 to-indigo-500/10', border: 'border-blue-200', text: 'text-blue-800', bg: 'bg-blue-50', skuPrefix: 'DAIR' },
   { id: 'Packaged Food', emoji: '🍿', label: 'Snacks & Packaged', color: 'from-orange-500/15 to-amber-500/10', border: 'border-orange-200', text: 'text-orange-800', bg: 'bg-orange-50', skuPrefix: 'PACK' },
@@ -43,7 +43,7 @@ export const CATEGORY_DEFINITIONS = [
 
 
 // Helper: auto-generate unique SKU code based on category prefix
-export const generateUniqueSKU = (catName) => {
+const generateUniqueSKU = (catName) => {
   const match = CATEGORY_DEFINITIONS.find((c) => c.id === catName);
   const prefix = match ? match.skuPrefix : (catName ? catName.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, '') : 'PROD');
   const rand = Math.floor(1000 + Math.random() * 9000);
