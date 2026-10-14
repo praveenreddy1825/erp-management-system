@@ -2,6 +2,31 @@ import PurchaseOrder from '../models/PurchaseOrder.js';
 import Product from '../models/Product.js';
 import Supplier from '../models/Supplier.js';
 import GRN from '../models/GRN.js';
+import User from '../models/User.js';
+import Contact from '../models/Contact.js';
+
+// Helper to resolve linked supplier business ID for a user
+export const getSupplierProfileId = async (user) => {
+  if (!user) return null;
+  if (user.supplierProfile) {
+    return (user.supplierProfile._id || user.supplierProfile).toString();
+  }
+  // 1. Fallback: Lookup Supplier with userAccount matching user._id
+  let supplier = await Supplier.findOne({ userAccount: user._id });
+  // 2. Fallback: Lookup Supplier whose contact email matches user.email
+  if (!supplier && user.email) {
+    const contact = await Contact.findOne({ email: user.email.toLowerCase().trim() });
+    if (contact) {
+      supplier = await Supplier.findOne({ contactInfo: contact._id });
+    }
+  }
+  if (supplier) {
+    user.supplierProfile = supplier._id;
+    await User.findByIdAndUpdate(user._id, { supplierProfile: supplier._id }).catch(() => {});
+    return supplier._id.toString();
+  }
+  return null;
+};
 
 // Enterprise State Machine for Purchase Orders
 export const VALID_PO_TRANSITIONS = {
@@ -153,12 +178,18 @@ export const getPurchaseOrders = async (req, res) => {
 
     const filter = {};
 
-    // Scope PO visibility if user is a Supplier
+    // Scope PO visibility if user is a Supplier (strict vendor boundary)
     if (req.user && req.user.role === 'Supplier') {
-      if (!req.user.supplierProfile) {
-        return res.status(403).json({ message: 'No linked supplier profile found for this account' });
+      const supplierId = await getSupplierProfileId(req.user);
+      if (!supplierId) {
+        return res.status(200).json({
+          orders: [],
+          page: 1,
+          pages: 1,
+          totalOrders: 0,
+        });
       }
-      filter.supplier = req.user.supplierProfile;
+      filter.supplier = supplierId;
     } else if (req.query.supplier) {
       filter.supplier = req.query.supplier;
     }
@@ -171,17 +202,24 @@ export const getPurchaseOrders = async (req, res) => {
       filter.paymentStatus = req.query.paymentStatus;
     }
 
-    // Search by poNumber or supplier name
+    // Search by poNumber or supplier name (scoped strictly if supplier)
     if (req.query.search) {
       const searchRegex = { $regex: req.query.search.trim(), $options: 'i' };
-      const matchedSuppliers = await Supplier.find({ name: searchRegex }).select('_id');
-      const supplierIds = matchedSuppliers.map((s) => s._id);
+      if (req.user && req.user.role === 'Supplier') {
+        filter.$or = [
+          { poNumber: searchRegex },
+          { remarks: searchRegex },
+        ];
+      } else {
+        const matchedSuppliers = await Supplier.find({ name: searchRegex }).select('_id');
+        const supplierIds = matchedSuppliers.map((s) => s._id);
 
-      filter.$or = [
-        { poNumber: searchRegex },
-        { remarks: searchRegex },
-        { supplier: { $in: supplierIds } },
-      ];
+        filter.$or = [
+          { poNumber: searchRegex },
+          { remarks: searchRegex },
+          { supplier: { $in: supplierIds } },
+        ];
+      }
     }
 
     const total = await PurchaseOrder.countDocuments(filter);
@@ -223,10 +261,11 @@ export const getPurchaseOrderById = async (req, res) => {
 
     // Verify supplier ownership
     if (req.user && req.user.role === 'Supplier') {
+      const supplierId = await getSupplierProfileId(req.user);
       const orderSupplierId = (order.supplier?._id || order.supplier).toString();
-      const userSupplierId = (req.user.supplierProfile?._id || req.user.supplierProfile || '').toString();
-      if (orderSupplierId !== userSupplierId) {
-        return res.status(403).json({ message: 'Access denied: You can only view your own purchase orders' });
+      const userSupplierId = (supplierId || '').toString();
+      if (!userSupplierId || orderSupplierId !== userSupplierId) {
+        return res.status(403).json({ message: 'Access denied: You can only view purchase orders sent directly to your vendor profile' });
       }
     }
 
@@ -299,10 +338,11 @@ export const updatePurchaseOrderStatus = async (req, res) => {
 
     // Supplier role transition guard
     if (req.user && req.user.role === 'Supplier') {
+      const supplierId = await getSupplierProfileId(req.user);
       const orderSupplierId = (order.supplier?._id || order.supplier).toString();
-      const userSupplierId = (req.user.supplierProfile?._id || req.user.supplierProfile || '').toString();
-      if (orderSupplierId !== userSupplierId) {
-        return res.status(403).json({ message: 'Access denied: You can only update your own purchase orders' });
+      const userSupplierId = (supplierId || '').toString();
+      if (!userSupplierId || orderSupplierId !== userSupplierId) {
+        return res.status(403).json({ message: 'Access denied: You can only update purchase orders sent directly to your vendor profile' });
       }
 
       const allowedSupplierActions = ['Confirmed', 'Rejected'];

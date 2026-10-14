@@ -426,8 +426,17 @@ const PurchaseOrders = () => {
   const canWrite = ['Admin', 'Purchase_Manager'].includes(user?.role);
   const canReceiveGrn = ['Admin', 'Inventory_Manager', 'Purchase_Manager'].includes(user?.role);
 
-  // Filtered orders
+  // Filtered orders (Strict multi-tenant vendor scoping)
   const filteredOrders = orders.filter((order) => {
+    // If supplier, strictly ensure order was sent to this vendor
+    if (user?.role === 'Supplier' && user?.supplierProfile) {
+      const userSuppId = (user.supplierProfile?._id || user.supplierProfile).toString();
+      const orderSuppId = (order.supplier?._id || order.supplier || '').toString();
+      if (userSuppId && orderSuppId && userSuppId !== orderSuppId) {
+        return false;
+      }
+    }
+
     const matchSearch =
       !search ||
       (order.poNumber && order.poNumber.toLowerCase().includes(search.toLowerCase())) ||

@@ -5,6 +5,7 @@ import SalesOrder from '../models/SalesOrder.js';
 import PurchaseOrder from '../models/PurchaseOrder.js';
 import Invoice from '../models/Invoice.js';
 import Contact from '../models/Contact.js';
+import { getSupplierProfileId } from './purchaseOrderController.js';
 
 // @desc    Get comprehensive server-calculated operational & financial dashboard summary
 // @route   GET /api/dashboard/summary
@@ -53,9 +54,9 @@ export const getDashboardSummary = async (req, res) => {
       });
     }
 
-    // 2. Supplier Scoped Dashboard Metrics
+    // 2. Supplier Scoped Dashboard Metrics (Strictly scoped to assigned POs)
     if (role === 'Supplier') {
-      const supplierId = req.user.supplierProfile;
+      const supplierId = await getSupplierProfileId(req.user);
       if (!supplierId) {
         return res.status(200).json({
           role: 'Supplier',
