@@ -11,13 +11,14 @@ import {
   fulfillOrderStock,
 } from '../utils/inventoryHelper.js';
 
-// Enterprise State Machine for Sales Orders
+// Streamlined State Machine for Sales Orders (Pending -> Processing -> Delivered)
 export const VALID_STATUS_TRANSITIONS = {
-  Pending: ['Confirmed', 'Processing', 'Cancelled', 'Rejected'],
-  Confirmed: ['Processing', 'Cancelled', 'Rejected'],
-  Processing: ['Fulfilled', 'Delivered', 'Cancelled'],
+  Pending: ['Confirmed', 'Processing', 'Delivered', 'Cancelled', 'Rejected'],
+  Confirmed: ['Processing', 'Delivered', 'Cancelled', 'Rejected'],
+  Processing: ['Delivered', 'Fulfilled', 'Shipped', 'Cancelled'],
+  Shipped: ['Delivered', 'Fulfilled', 'Cancelled'],
   Fulfilled: [],  // Terminal fulfilled status
-  Delivered: [],  // Terminal fulfilled status (backward compatible)
+  Delivered: [],  // Terminal fulfilled status
   Cancelled: [],  // Terminal status
   Rejected: [],   // Terminal status
 };

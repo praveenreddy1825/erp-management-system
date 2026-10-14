@@ -1,5 +1,31 @@
 import mongoose from 'mongoose';
 
+export const PRODUCT_CATEGORIES = [
+  // Consumer & Retail
+  'Grocery',
+  'Dairy',
+  'Packaged Food',
+  'Beverages',
+  'Personal Care',
+  'Household',
+  'Fashion',
+  'Electronics',
+  'Pharmacy',
+  'Office Supplies',
+  'Hardware & Tools',
+  'Home & Kitchen',
+  // B2B & Manufacturing ERP
+  'Industrial',
+  'Raw Materials',
+  'Valves',
+  'Pipes',
+  'Machinery',
+  'Chemicals',
+  'Automotive',
+  'Packaging',
+];
+
+
 const productSchema = new mongoose.Schema(
   {
     name: {
@@ -17,6 +43,10 @@ const productSchema = new mongoose.Schema(
     category: {
       type: String,
       required: [true, 'Please add a product category'],
+      enum: {
+        values: PRODUCT_CATEGORIES,
+        message: '{VALUE} is not a recognized product category',
+      },
       trim: true,
     },
     price: {

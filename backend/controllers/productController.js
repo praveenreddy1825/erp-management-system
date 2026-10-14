@@ -1,4 +1,4 @@
-import Product from '../models/Product.js';
+import Product, { PRODUCT_CATEGORIES } from '../models/Product.js';
 
 // @desc----> Get all products (with Search, Category filter, and Pagination)
 // @route---->GET /api/products
@@ -35,13 +35,16 @@ export const getProducts = async (req, res) => {
 
     // Fetch products and total count
     const total = await Product.countDocuments(query);
-    const categories = await Product.distinct('category');
+    const dbCategories = await Product.distinct('category');
+    // Ensure all predefined ERP categories are merged
+    const categories = Array.from(new Set([...PRODUCT_CATEGORIES, ...dbCategories]));
 
     if (req.query.all === 'true' || req.query.limit === 'all' || parseInt(req.query.limit, 10) >= 1000) {
       const products = await Product.find(query).sort(sortObj);
       return res.status(200).json({
         products,
         categories,
+        allCategories: PRODUCT_CATEGORIES,
         page: 1,
         pages: 1,
         totalProducts: total,
@@ -56,6 +59,7 @@ export const getProducts = async (req, res) => {
     res.status(200).json({
       products,
       categories,
+      allCategories: PRODUCT_CATEGORIES,
       page,
       pages: Math.ceil(total / limit) || 1,
       totalProducts: total,
@@ -85,21 +89,61 @@ export const getProductById = async (req, res) => {
 // @access  Private (Admin, Sales_Manager, Purchase_Manager)
 export const createProduct = async (req, res) => {
   try {
-    const { name, SKU, category, price, description, stock, reorderLevel } = req.body;
+    let { name, SKU, category, price, description, stock, reorderLevel } = req.body;
 
-    const skuExists = await Product.findOne({ SKU: SKU.toUpperCase() });
-    if (skuExists) {
-      return res.status(400).json({ message: 'Product with this SKU already exists' });
+    // Auto-generate unique SKU if not provided or empty
+    if (!SKU || typeof SKU !== 'string' || SKU.trim() === '') {
+      const prefixMap = {
+        'Grocery': 'GROC',
+        'Dairy': 'DAIR',
+        'Packaged Food': 'PACK',
+        'Beverages': 'BEV',
+        'Personal Care': 'PERS',
+        'Household': 'HOUS',
+        'Fashion': 'FASH',
+        'Electronics': 'ELEC',
+        'Pharmacy': 'PHAR',
+        'Office Supplies': 'OFFC',
+        'Hardware & Tools': 'TOOL',
+        'Home & Kitchen': 'HOME',
+        'Industrial': 'INDU',
+        'Raw Materials': 'RAWM',
+        'Valves': 'VALV',
+        'Pipes': 'PIPE',
+        'Machinery': 'MACH',
+        'Chemicals': 'CHEM',
+        'Automotive': 'AUTO',
+        'Packaging': 'PACK',
+      };
+      const prefix = prefixMap[category] || (category ? category.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, '') : 'PROD');
+      let candidateSKU = '';
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const rand = Math.floor(1000 + Math.random() * 9000);
+        candidateSKU = `${prefix}-${rand}`;
+        const exists = await Product.findOne({ SKU: candidateSKU });
+        if (!exists) break;
+      }
+      SKU = candidateSKU || `${prefix}-${Date.now().toString().slice(-4)}`;
+    } else {
+      SKU = SKU.trim().toUpperCase();
+      const skuExists = await Product.findOne({ SKU });
+      if (skuExists) {
+        return res.status(400).json({ message: 'Product with this SKU already exists' });
+      }
     }
 
+    const numStock = parseInt(stock, 10) || 0;
     const product = await Product.create({
-      name,
+      name: name?.trim(),
       SKU,
       category,
-      price,
+      price: parseFloat(price) || 0,
       description,
-      stock,
-      reorderLevel,
+      stock: numStock,
+      onHand: numStock,
+      reserved: 0,
+      available: numStock,
+      reorderLevel: parseInt(reorderLevel, 10) || 10,
     });
 
     res.status(201).json(product);

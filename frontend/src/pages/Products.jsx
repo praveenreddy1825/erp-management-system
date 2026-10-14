@@ -17,24 +17,44 @@ import TuneIcon from '@mui/icons-material/Tune';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 
-// Category style & metadata helper
+// Predefined ERP Categories (Enum) with Rich UI Metadata & SKU Prefixes
+export const CATEGORY_DEFINITIONS = [
+  { id: 'Grocery', emoji: '🌾', label: 'Grocery & Staples', color: 'from-amber-500/15 to-emerald-500/10', border: 'border-emerald-200', text: 'text-emerald-800', bg: 'bg-emerald-50', skuPrefix: 'GROC' },
+  { id: 'Dairy', emoji: '🥛', label: 'Dairy & Breakfast', color: 'from-blue-500/15 to-indigo-500/10', border: 'border-blue-200', text: 'text-blue-800', bg: 'bg-blue-50', skuPrefix: 'DAIR' },
+  { id: 'Packaged Food', emoji: '🍿', label: 'Snacks & Packaged', color: 'from-orange-500/15 to-amber-500/10', border: 'border-orange-200', text: 'text-orange-800', bg: 'bg-orange-50', skuPrefix: 'PACK' },
+  { id: 'Beverages', emoji: '☕', label: 'Tea, Coffee & Drinks', color: 'from-amber-600/15 to-yellow-600/10', border: 'border-amber-200', text: 'text-amber-800', bg: 'bg-amber-50', skuPrefix: 'BEV' },
+  { id: 'Personal Care', emoji: '✨', label: 'Personal Care & Beauty', color: 'from-pink-500/15 to-purple-500/10', border: 'border-pink-200', text: 'text-pink-800', bg: 'bg-pink-50', skuPrefix: 'PERS' },
+  { id: 'Household', emoji: '🧼', label: 'Household & Cleaning', color: 'from-cyan-500/15 to-teal-500/10', border: 'border-cyan-200', text: 'text-cyan-800', bg: 'bg-cyan-50', skuPrefix: 'HOUS' },
+  { id: 'Fashion', emoji: '👕', label: 'Fashion & Apparel', color: 'from-violet-500/15 to-purple-500/10', border: 'border-violet-200', text: 'text-violet-800', bg: 'bg-violet-50', skuPrefix: 'FASH' },
+  { id: 'Electronics', emoji: '⚡', label: 'Electronics & Gadgets', color: 'from-sky-500/15 to-blue-500/10', border: 'border-sky-200', text: 'text-sky-800', bg: 'bg-sky-50', skuPrefix: 'ELEC' },
+  { id: 'Pharmacy', emoji: '💊', label: 'Pharmacy & Wellness', color: 'from-red-500/15 to-rose-500/10', border: 'border-red-200', text: 'text-red-800', bg: 'bg-red-50', skuPrefix: 'PHAR' },
+  { id: 'Office Supplies', emoji: '📎', label: 'Office & Stationery', color: 'from-indigo-500/15 to-slate-500/10', border: 'border-indigo-200', text: 'text-indigo-800', bg: 'bg-indigo-50', skuPrefix: 'OFFC' },
+  { id: 'Hardware & Tools', emoji: '🔨', label: 'Hardware & Tools', color: 'from-zinc-500/15 to-neutral-500/10', border: 'border-zinc-200', text: 'text-zinc-800', bg: 'bg-zinc-50', skuPrefix: 'TOOL' },
+  { id: 'Home & Kitchen', emoji: '🍳', label: 'Home & Kitchenware', color: 'from-amber-600/15 to-orange-500/10', border: 'border-amber-200', text: 'text-amber-800', bg: 'bg-amber-50', skuPrefix: 'HOME' },
+  { id: 'Industrial', emoji: '⚙️', label: 'Industrial Equipment', color: 'from-slate-600/15 to-stone-600/10', border: 'border-slate-300', text: 'text-slate-800', bg: 'bg-slate-50', skuPrefix: 'INDU' },
+  { id: 'Raw Materials', emoji: '🪵', label: 'Raw Materials', color: 'from-amber-700/15 to-stone-600/10', border: 'border-amber-300', text: 'text-amber-900', bg: 'bg-amber-50', skuPrefix: 'RAWM' },
+  { id: 'Valves', emoji: '🚰', label: 'Valves & Control', color: 'from-cyan-600/15 to-blue-600/10', border: 'border-cyan-300', text: 'text-cyan-900', bg: 'bg-cyan-50', skuPrefix: 'VALV' },
+  { id: 'Pipes', emoji: '🔧', label: 'Pipes & Tubing', color: 'from-blue-600/15 to-indigo-600/10', border: 'border-blue-300', text: 'text-blue-900', bg: 'bg-blue-50', skuPrefix: 'PIPE' },
+  { id: 'Machinery', emoji: '🚜', label: 'Heavy Machinery', color: 'from-yellow-600/15 to-amber-600/10', border: 'border-yellow-300', text: 'text-yellow-900', bg: 'bg-yellow-50', skuPrefix: 'MACH' },
+  { id: 'Chemicals', emoji: '🧪', label: 'Chemicals & Solvents', color: 'from-emerald-600/15 to-teal-600/10', border: 'border-emerald-300', text: 'text-emerald-900', bg: 'bg-emerald-50', skuPrefix: 'CHEM' },
+  { id: 'Automotive', emoji: '🚗', label: 'Automotive & Spares', color: 'from-red-600/15 to-rose-600/10', border: 'border-red-300', text: 'text-red-900', bg: 'bg-red-50', skuPrefix: 'AUTO' },
+  { id: 'Packaging', emoji: '📦', label: 'Packaging & Shipping', color: 'from-stone-600/15 to-zinc-600/10', border: 'border-stone-300', text: 'text-stone-900', bg: 'bg-stone-50', skuPrefix: 'PACK' },
+];
+
+
+// Helper: auto-generate unique SKU code based on category prefix
+export const generateUniqueSKU = (catName) => {
+  const match = CATEGORY_DEFINITIONS.find((c) => c.id === catName);
+  const prefix = match ? match.skuPrefix : (catName ? catName.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, '') : 'PROD');
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  return `${prefix}-${rand}`;
+};
+
+// Helper: lookup category display style & metadata
 const getCategoryMeta = (cat) => {
-  switch (cat) {
-    case 'Grocery':
-      return { emoji: '🌾', label: 'Grocery & Staples', color: 'from-amber-500/15 to-emerald-500/10', border: 'border-emerald-200', text: 'text-emerald-800', bg: 'bg-emerald-50' };
-    case 'Dairy':
-      return { emoji: '🥛', label: 'Dairy & Breakfast', color: 'from-blue-500/15 to-indigo-500/10', border: 'border-blue-200', text: 'text-blue-800', bg: 'bg-blue-50' };
-    case 'Packaged Food':
-      return { emoji: '🍿', label: 'Snacks & Packaged', color: 'from-orange-500/15 to-amber-500/10', border: 'border-orange-200', text: 'text-orange-800', bg: 'bg-orange-50' };
-    case 'Beverages':
-      return { emoji: '☕', label: 'Tea, Coffee & Drinks', color: 'from-amber-600/15 to-yellow-600/10', border: 'border-amber-200', text: 'text-amber-800', bg: 'bg-amber-50' };
-    case 'Household':
-      return { emoji: '🧼', label: 'Household Cleaning', color: 'from-cyan-500/15 to-teal-500/10', border: 'border-cyan-200', text: 'text-cyan-800', bg: 'bg-cyan-50' };
-    case 'Personal Care':
-      return { emoji: '✨', label: 'Personal Care & Beauty', color: 'from-pink-500/15 to-purple-500/10', border: 'border-pink-200', text: 'text-pink-800', bg: 'bg-pink-50' };
-    default:
-      return { emoji: '📦', label: cat || 'General', color: 'from-stone-500/10 to-stone-600/10', border: 'border-stone-200', text: 'text-stone-800', bg: 'bg-stone-50' };
-  }
+  const match = CATEGORY_DEFINITIONS.find((c) => c.id === cat);
+  if (match) return match;
+  return { emoji: '📦', label: cat || 'General', color: 'from-stone-500/10 to-stone-600/10', border: 'border-stone-200', text: 'text-stone-800', bg: 'bg-stone-50', skuPrefix: 'ITEM' };
 };
 
 const Products = () => {
@@ -240,16 +260,26 @@ const Products = () => {
 
   const handleAddOpen = () => {
     setIsEditMode(false);
+    const defaultCat = 'Grocery';
     setFormData({
       name: '',
-      SKU: '',
-      category: '',
+      SKU: generateUniqueSKU(defaultCat),
+      category: defaultCat,
       price: '',
-      stock: 0,
+      stock: 20,
       reorderLevel: 10,
       description: '',
     });
     setIsModalOpen(true);
+  };
+
+  const handleCategoryChange = (e) => {
+    const newCat = e.target.value;
+    setFormData((prev) => ({
+      ...prev,
+      category: newCat,
+      SKU: !isEditMode ? generateUniqueSKU(newCat) : prev.SKU,
+    }));
   };
 
   const handleEditOpen = (product) => {
@@ -1170,7 +1200,19 @@ const Products = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1">SKU Code</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-gray-500">SKU Code</label>
+                    {!isEditMode && canEditProductCatalog && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, SKU: generateUniqueSKU(prev.category) }))}
+                        className="text-[10px] text-amber-700 hover:text-amber-900 font-bold flex items-center space-x-1 cursor-pointer"
+                        title="Auto-generate a new unique SKU code"
+                      >
+                        <span>🔄 Auto-Generate</span>
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     name="SKU"
@@ -1178,25 +1220,35 @@ const Products = () => {
                     disabled={isEditMode || !canEditProductCatalog}
                     value={formData.SKU}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500"
-                    placeholder="E.g., STL-SHT-01"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono font-bold uppercase focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:bg-gray-50 disabled:text-gray-500"
+                    placeholder="E.g., GROC-8492"
                   />
+                  {!isEditMode && (
+                    <span className="text-[10px] text-emerald-700 font-semibold block mt-0.5">
+                      ✓ Auto-generated uniquely based on category
+                    </span>
+                  )}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1">Category</label>
-                  <input
-                    type="text"
+                  <label className="block text-xs font-bold text-gray-500 mb-1">Predefined ERP Category</label>
+                  <select
                     name="category"
                     required
                     disabled={!canEditProductCatalog}
                     value={formData.category}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-gray-50 disabled:text-gray-500"
-                    placeholder="E.g., Grocery, Dairy, Beverages"
-                  />
+                    onChange={handleCategoryChange}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white font-medium focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:bg-gray-50 disabled:text-gray-500 cursor-pointer"
+                  >
+                    <option value="" disabled>Select an ERP Category</option>
+                    {CATEGORY_DEFINITIONS.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.emoji} {cat.label} ({cat.id})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Price ($)</label>
