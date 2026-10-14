@@ -1,5 +1,6 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+import axios from 'axios';
 import { AuthContext } from '../context/AuthContext.jsx';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import InventoryIcon from '@mui/icons-material/Inventory';
@@ -11,12 +12,39 @@ import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import SupportAgentIcon from '@mui/icons-material/SupportAgent';
+import PhoneIcon from '@mui/icons-material/Phone';
+import EmailIcon from '@mui/icons-material/Email';
 
 const Layout = () => {
   const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [salesContact, setSalesContact] = useState({
+    name: 'Vikram Malhotra',
+    email: 'sales@erp.com',
+    phone_number: '+91 92123 45678',
+    role: 'Sales Manager',
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchSalesContact = async () => {
+      try {
+        const res = await axios.get('http://127.0.0.1:9999/api/auth/sales-contact');
+        if (isMounted && res.data) {
+          setSalesContact(res.data);
+        }
+      } catch {
+        // Fallback default maintained
+      }
+    };
+    fetchSalesContact();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -24,8 +52,9 @@ const Layout = () => {
   };
 
   // Define sidebar navigation items based on user roles
+  // Customers do NOT have dashboard; their home is Store & Products
   const menuItems = [
-    { text: 'Dashboard', path: '/dashboard', icon: <DashboardIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Customer', 'Supplier'] },
+    { text: 'Dashboard', path: '/dashboard', icon: <DashboardIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Supplier'] },
     { text: user?.role === 'Customer' ? 'Store & Products' : 'Products', path: '/products', icon: <InventoryIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Customer'] },
     { text: 'Customers', path: '/customers', icon: <PeopleIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'] },
     { text: 'Suppliers', path: '/suppliers', icon: <LocalShippingIcon />, roles: ['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'] },
@@ -102,6 +131,66 @@ const Layout = () => {
               );
             })}
         </nav>
+
+        {/* Sales Manager Contact Details Widget */}
+        <div className="px-3 pt-2 pb-1 border-t border-[#E5E0D5]">
+          {!isCollapsed ? (
+            <div className="p-3 rounded-xl bg-white/90 border border-[#E2DDD2] shadow-2xs hover:shadow-xs transition-shadow">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-400 flex items-center justify-center text-stone-900 shadow-xs shrink-0">
+                  <SupportAgentIcon className="!w-4 !h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-800">
+                      Sales Contact
+                    </span>
+                    <span className="inline-flex items-center space-x-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded-full border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span>Online</span>
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-stone-900 truncate">
+                    {salesContact.name}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 text-[11px] pt-1.5 border-t border-[#F0ECE1]">
+                <a
+                  href={`tel:${salesContact.phone_number}`}
+                  className="flex items-center space-x-2 text-stone-600 hover:text-amber-800 transition-colors py-0.5 group"
+                  title="Call Sales Manager"
+                >
+                  <PhoneIcon className="!w-3.5 !h-3.5 text-stone-400 group-hover:text-amber-600 shrink-0" />
+                  <span className="font-semibold text-stone-800 group-hover:text-amber-900 truncate">
+                    {salesContact.phone_number}
+                  </span>
+                </a>
+                <a
+                  href={`mailto:${salesContact.email}`}
+                  className="flex items-center space-x-2 text-stone-600 hover:text-amber-800 transition-colors py-0.5 group"
+                  title="Email Sales Manager"
+                >
+                  <EmailIcon className="!w-3.5 !h-3.5 text-stone-400 group-hover:text-amber-600 shrink-0" />
+                  <span className="font-medium text-stone-700 group-hover:text-amber-900 truncate">
+                    {salesContact.email}
+                  </span>
+                </a>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-center py-1">
+              <a
+                href={`tel:${salesContact.phone_number}`}
+                title={`Sales Manager Support:\n${salesContact.name}\nPhone: ${salesContact.phone_number}\nEmail: ${salesContact.email}`}
+                className="w-10 h-10 rounded-xl bg-amber-100 hover:bg-amber-400 text-amber-900 hover:text-stone-950 border border-amber-300 flex items-center justify-center transition-all cursor-pointer shadow-xs"
+              >
+                <SupportAgentIcon className="!w-5 !h-5" />
+              </a>
+            </div>
+          )}
+        </div>
 
         {/* Logout Footer */}
         <div className="p-3 border-t border-[#E5E0D5]">

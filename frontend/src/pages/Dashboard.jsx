@@ -1,4 +1,5 @@
 import React, { useContext } from 'react';
+import { Navigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext.jsx';
 import AdminDashboard from '../components/dashboard/AdminDashboard.jsx';
 import SalesDashboard from '../components/dashboard/SalesDashboard.jsx';
@@ -10,6 +11,10 @@ import CommonDashboard from '../components/dashboard/CommonDashboard.jsx';
 
 const Dashboard = () => {
   const { user } = useContext(AuthContext);
+
+  if (user?.role === 'Customer') {
+    return <Navigate to="/products" replace />;
+  }
 
   const renderDashboard = () => {
     switch (user?.role) {

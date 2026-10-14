@@ -20,6 +20,7 @@ const LandingRedirect = () => {
   const { user } = useContext(AuthContext);
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === 'Supplier') return <Navigate to="/purchase-orders" replace />;
+  if (user.role === 'Customer') return <Navigate to="/products" replace />;
   return <Navigate to="/dashboard" replace />;
 };
 

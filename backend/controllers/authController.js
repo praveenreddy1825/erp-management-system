@@ -236,3 +236,28 @@ export const changePassword = async (req, res) => {
     res.status(500).json({ message: error.message || 'Failed to change password' });
   }
 };
+
+// @desc    Get Sales Manager contact details for customer & partner support
+// @route   GET /api/auth/sales-contact
+// @access  Private (All authenticated users)
+export const getSalesContact = async (req, res) => {
+  try {
+    const salesManager = await User.findOne({ role: 'Sales_Manager' }).select('name email phone_number role');
+    if (salesManager) {
+      return res.status(200).json({
+        name: salesManager.name,
+        email: salesManager.email,
+        phone_number: salesManager.phone_number || '+91 92123 45678',
+        role: 'Sales Manager',
+      });
+    }
+    return res.status(200).json({
+      name: 'Vikram Malhotra',
+      email: 'sales@erp.com',
+      phone_number: '+91 92123 45678',
+      role: 'Sales Manager',
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to fetch sales contact' });
+  }
+};

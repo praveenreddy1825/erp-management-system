@@ -6,10 +6,16 @@ import {
   createInternalUser,
   createSupplierAccount,
   changePassword,
+  getSalesContact,
 } from '../controllers/authController.js';
 import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+// Route: Get Sales Manager contact details (accessible to all authenticated users)
+// GET /api/auth/sales-contact
+router.get('/sales-contact', protect, getSalesContact);
+
 
 // Route: Register a new user (Customers only)
 // POST /api/auth/register
