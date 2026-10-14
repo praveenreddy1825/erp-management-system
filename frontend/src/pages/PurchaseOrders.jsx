@@ -7,6 +7,10 @@ import InventoryIcon from '@mui/icons-material/Inventory';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import PaymentIcon from '@mui/icons-material/Payment';
+import DownloadIcon from '@mui/icons-material/Download';
+import ThumbUpIcon from '@mui/icons-material/ThumbUp';
+import ThumbDownIcon from '@mui/icons-material/ThumbDown';
+import { exportPOInvoicePDF } from '../utils/poInvoiceGenerator.js';
 
 const PurchaseOrders = () => {
   const { user } = useContext(AuthContext);
@@ -31,6 +35,11 @@ const PurchaseOrders = () => {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isGrnModalOpen, setIsGrnModalOpen] = useState(false);
   const [targetOrder, setTargetOrder] = useState(null);
+
+  // Supplier Rejection Dialog
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectingOrder, setRejectingOrder] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
 
   // Workflow Dialog Form Fields
   const [confirmData, setConfirmData] = useState({ expectedDeliveryDate: '', notes: '' });
@@ -62,18 +71,23 @@ const PurchaseOrders = () => {
     setTimeout(() => setNotification(null), 4500);
   };
 
-  // Fetch POs, Suppliers, and Products
+  // Fetch POs, Suppliers, and Products (Role-scoped to avoid 403 on products/suppliers for Supplier role)
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [poRes, suppRes, prodRes] = await Promise.all([
-        axios.get('http://127.0.0.1:9999/api/purchase-orders?limit=300'),
-        axios.get('http://127.0.0.1:9999/api/suppliers?all=true'),
-        axios.get('http://127.0.0.1:9999/api/products?all=true'),
-      ]);
-      setOrders(poRes.data.orders || []);
-      setSuppliers(suppRes.data.suppliers || []);
-      setProducts(prodRes.data.products || []);
+      if (user?.role === 'Supplier') {
+        const poRes = await axios.get('http://127.0.0.1:9999/api/purchase-orders?limit=300');
+        setOrders(poRes.data.orders || []);
+      } else {
+        const [poRes, suppRes, prodRes] = await Promise.all([
+          axios.get('http://127.0.0.1:9999/api/purchase-orders?limit=300'),
+          axios.get('http://127.0.0.1:9999/api/suppliers?all=true'),
+          axios.get('http://127.0.0.1:9999/api/products?all=true'),
+        ]);
+        setOrders(poRes.data.orders || []);
+        setSuppliers(suppRes.data.suppliers || []);
+        setProducts(prodRes.data.products || []);
+      }
     } catch (error) {
       console.error('Error fetching purchase data:', error);
     }
@@ -189,6 +203,49 @@ const PurchaseOrders = () => {
       fetchData();
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to confirm order');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Supplier Direct Accept & Reject Handlers
+  const handleAcceptOrder = async (order) => {
+    try {
+      setActionLoading(true);
+      await axios.put(`http://127.0.0.1:9999/api/purchase-orders/${order._id}/status`, {
+        status: 'Confirmed',
+        notes: 'Purchase Order accepted and confirmed by supplier vendor',
+      });
+      showToast(`Purchase Order #${order.poNumber || order._id.slice(-6)} Accepted!`);
+      fetchData();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to accept purchase order');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleOpenReject = (order) => {
+    setRejectingOrder(order);
+    setRejectionReason('');
+    setRejectModalOpen(true);
+  };
+
+  const handleRejectSubmit = async (e) => {
+    e.preventDefault();
+    if (!rejectionReason.trim()) return alert('Please enter a rejection reason.');
+    try {
+      setActionLoading(true);
+      await axios.put(`http://127.0.0.1:9999/api/purchase-orders/${rejectingOrder._id}/status`, {
+        status: 'Rejected',
+        notes: rejectionReason.trim(),
+        rejectionReason: rejectionReason.trim(),
+      });
+      setRejectModalOpen(false);
+      showToast('Purchase Order rejected with documented reason.');
+      fetchData();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to reject purchase order');
     } finally {
       setActionLoading(false);
     }
@@ -402,10 +459,16 @@ const PurchaseOrders = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Purchase Orders & Inbound Procurement</h1>
-          <p className="text-gray-500 text-sm">Issue procurement orders, record vendor acceptance & dispatch, intake stock via GRN, and disburse payments</p>
+          <h1 className="text-2xl font-bold text-gray-800">
+            {user?.role === 'Supplier' ? 'My Purchase Orders & Inbound Delivery' : 'Purchase Orders & Inbound Procurement'}
+          </h1>
+          <p className="text-gray-500 text-sm">
+            {user?.role === 'Supplier'
+              ? 'Review assigned purchase orders, accept or reject incoming contracts, and download official PO Billing Invoices'
+              : 'Issue procurement orders, record vendor acceptance & dispatch, intake stock via GRN, and disburse payments'}
+          </p>
         </div>
-        {canWrite && (
+        {canWrite && user?.role !== 'Supplier' && (
           <button
             onClick={handleOpenCreateModal}
             className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-stone-950 font-black rounded-lg text-sm shadow-md shadow-yellow-500/20 transition-all cursor-pointer flex items-center space-x-1.5"
@@ -415,39 +478,74 @@ const PurchaseOrders = () => {
         )}
       </div>
 
-      {/* 3-Stage Direct Procurement Flow */}
-      <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-150 shadow-xs">
-        <div className="text-xs font-bold uppercase tracking-wider text-amber-800 mb-3 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <span>📦 Streamlined ERP Procurement Workflow</span>
-            <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-mono font-bold">Direct GRN Intake</span>
+      {/* Procurement / Supplier Workflow Guidance */}
+      {user?.role === 'Supplier' ? (
+        <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-150 shadow-xs">
+          <div className="text-xs font-bold uppercase tracking-wider text-amber-800 mb-3 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span>📦 Vendor Order Processing Flow</span>
+              <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-mono font-bold">Supplier Portal</span>
+            </div>
+            <span className="text-[11px] text-gray-500 font-normal hidden sm:inline">1. Accept/Reject PO ➔ 2. Download Official PO Invoice ➔ 3. Warehouse Delivery & Disbursement</span>
           </div>
-          <span className="text-[11px] text-gray-500 font-normal hidden sm:inline">1. Create PO ➔ 2. Verify Goods (GRN) ➔ 3. Stock Automatically Incremented</span>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 rounded-lg bg-stone-50 border border-stone-200 flex items-start space-x-2.5">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-stone-200 text-stone-800 font-black flex items-center justify-center text-xs">1</span>
+              <div>
+                <span className="font-bold text-gray-900 block text-xs">Review & Accept</span>
+                <span className="text-gray-500 text-[11px]">Inspect line items, ordered quantities, prices, and accept or reject the PO.</span>
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-amber-50/70 border border-amber-300 flex items-start space-x-2.5">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-400 text-stone-950 font-black flex items-center justify-center text-xs">2</span>
+              <div>
+                <span className="font-bold text-amber-950 block text-xs">Download PO Invoice</span>
+                <span className="text-amber-800 text-[11px]">Click 'PO Invoice' on any order to download an official PDF billing slip.</span>
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-300 flex items-start space-x-2.5">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500 text-white font-black flex items-center justify-center text-xs">3</span>
+              <div>
+                <span className="font-bold text-emerald-950 block text-xs">Delivery & Disbursement</span>
+                <span className="text-emerald-800 text-[11px]">Warehouse verifies goods via GRN; finance disburses full contract payment.</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-          <div className="p-3 rounded-lg bg-stone-50 border border-stone-200 flex items-start space-x-2.5">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-stone-200 text-stone-800 font-black flex items-center justify-center text-xs">1</span>
-            <div>
-              <span className="font-bold text-gray-900 block text-xs">Create Purchase Order</span>
-              <span className="text-gray-500 text-[11px]">Select vendor, pick products, set quantities & price, and issue order.</span>
+      ) : (
+        <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-150 shadow-xs">
+          <div className="text-xs font-bold uppercase tracking-wider text-amber-800 mb-3 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span>📦 Streamlined ERP Procurement Workflow</span>
+              <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-mono font-bold">Direct GRN Intake</span>
             </div>
+            <span className="text-[11px] text-gray-500 font-normal hidden sm:inline">1. Create PO ➔ 2. Verify Goods (GRN) ➔ 3. Stock Automatically Incremented</span>
           </div>
-          <div className="p-3 rounded-lg bg-amber-50/70 border border-amber-300 flex items-start space-x-2.5">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-400 text-stone-950 font-black flex items-center justify-center text-xs">2</span>
-            <div>
-              <span className="font-bold text-amber-950 block text-xs">Verify & Intake (GRN)</span>
-              <span className="text-amber-800 text-[11px]">Directly verify physical delivery, record accepted vs damaged items.</span>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 rounded-lg bg-stone-50 border border-stone-200 flex items-start space-x-2.5">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-stone-200 text-stone-800 font-black flex items-center justify-center text-xs">1</span>
+              <div>
+                <span className="font-bold text-gray-900 block text-xs">Create Purchase Order</span>
+                <span className="text-gray-500 text-[11px]">Select vendor, pick products, set quantities & price, and issue order.</span>
+              </div>
             </div>
-          </div>
-          <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-300 flex items-start space-x-2.5">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500 text-white font-black flex items-center justify-center text-xs">3</span>
-            <div>
-              <span className="font-bold text-emerald-950 block text-xs">Stock Updated & Delivered</span>
-              <span className="text-emerald-800 text-[11px]">Accepted quantities credit catalog stock immediately; PO reaches Delivered.</span>
+            <div className="p-3 rounded-lg bg-amber-50/70 border border-amber-300 flex items-start space-x-2.5">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-400 text-stone-950 font-black flex items-center justify-center text-xs">2</span>
+              <div>
+                <span className="font-bold text-amber-950 block text-xs">Verify & Intake (GRN)</span>
+                <span className="text-amber-800 text-[11px]">Directly verify physical delivery, record accepted vs damaged items.</span>
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-300 flex items-start space-x-2.5">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500 text-white font-black flex items-center justify-center text-xs">3</span>
+              <div>
+                <span className="font-bold text-emerald-950 block text-xs">Stock Updated & Delivered</span>
+                <span className="text-emerald-800 text-[11px]">Accepted quantities credit catalog stock immediately; PO reaches Delivered.</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-gray-150 shadow-xs flex flex-col md:flex-row gap-3">
@@ -613,7 +711,7 @@ const PurchaseOrders = () => {
                           <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-semibold rounded border border-stone-200">
                             Cancelled
                           </span>
-                        ) : ['Processing', 'Shipped', 'Partially_Received', 'Confirmed', 'Pending'].includes(order.status) && canReceiveGrn ? (
+                        ) : ['Processing', 'Shipped', 'Partially_Received', 'Confirmed', 'Pending'].includes(order.status) && canReceiveGrn && user?.role !== 'Supplier' ? (
                           <button
                             disabled={actionLoading}
                             onClick={() => handleOpenGrnModal(order)}
@@ -624,13 +722,48 @@ const PurchaseOrders = () => {
                             <span>📦 Verify & Intake (GRN)</span>
                           </button>
                         ) : (
-                          <span className="text-gray-400 text-xs font-medium">Pending Receiving</span>
+                          <span className="text-gray-400 text-xs font-medium">
+                            {order.status === 'Shipped' ? 'In-Transit to Warehouse' : 'Pending Receiving'}
+                          </span>
                         )}
                       </td>
 
                       {/* Actions */}
                       <td className="p-4">
                         <div className="flex items-center justify-center space-x-1.5">
+                          {/* If Supplier and order is Pending, provide Accept & Reject buttons */}
+                          {user?.role === 'Supplier' && order.status === 'Pending' && (
+                            <>
+                              <button
+                                disabled={actionLoading}
+                                onClick={() => handleAcceptOrder(order)}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded flex items-center space-x-1 text-xs transition-colors cursor-pointer"
+                                title="Accept Purchase Order"
+                              >
+                                <ThumbUpIcon className="!w-3.5 !h-3.5" />
+                                <span>Accept</span>
+                              </button>
+                              <button
+                                disabled={actionLoading}
+                                onClick={() => handleOpenReject(order)}
+                                className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded flex items-center space-x-1 text-xs transition-colors cursor-pointer"
+                                title="Reject Purchase Order"
+                              >
+                                <ThumbDownIcon className="!w-3.5 !h-3.5" />
+                                <span>Reject</span>
+                              </button>
+                            </>
+                          )}
+
+                          {/* 1-Click Download PO Invoice Slip */}
+                          <button
+                            onClick={() => exportPOInvoicePDF(order)}
+                            className="p-1.5 hover:bg-amber-100 text-amber-900 bg-amber-50 rounded-lg cursor-pointer transition-colors border border-amber-200"
+                            title="Download Official PO Invoice (PDF)"
+                          >
+                            <DownloadIcon className="!w-4 !h-4" />
+                          </button>
+
                           {/* Details */}
                           <button
                             onClick={() => handleViewDetails(order)}
@@ -640,8 +773,8 @@ const PurchaseOrders = () => {
                             <VisibilityIcon className="!w-4 !h-4" />
                           </button>
 
-                          {/* Cancel */}
-                          {canWrite && ['Pending', 'Confirmed', 'Processing', 'Shipped'].includes(order.status) && (
+                          {/* Cancel (Internal staff only) */}
+                          {canWrite && user?.role !== 'Supplier' && ['Pending', 'Confirmed', 'Processing', 'Shipped'].includes(order.status) && (
                             <button
                               disabled={actionLoading}
                               onClick={() => handleCancelOrder(order)}
@@ -1233,7 +1366,17 @@ const PurchaseOrders = () => {
                 </h2>
                 <p className="text-xs text-gray-500">Vendor: {selectedOrderDetail.order.supplier?.name}</p>
               </div>
-              <button onClick={() => setIsDetailModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl cursor-pointer">✕</button>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => exportPOInvoicePDF(selectedOrderDetail.order)}
+                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer transition-colors shadow-xs"
+                  title="Download PO Invoice Slip (PDF)"
+                >
+                  <DownloadIcon className="!w-4 !h-4 text-amber-400" />
+                  <span>Download PO Invoice (PDF)</span>
+                </button>
+                <button onClick={() => setIsDetailModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl cursor-pointer">✕</button>
+              </div>
             </div>
 
             <div className="p-6 space-y-4 overflow-y-auto flex-1 text-sm">
@@ -1333,6 +1476,55 @@ const PurchaseOrders = () => {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Modal: Supplier Rejection Reason */}
+      {rejectModalOpen && rejectingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-150 max-w-md w-full overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-rose-50/60">
+              <div>
+                <h2 className="text-base font-bold text-rose-900">
+                  Reject Purchase Order #{rejectingOrder.poNumber || rejectingOrder._id?.slice(-6)}
+                </h2>
+                <p className="text-xs text-rose-700">Vendor: {rejectingOrder.supplier?.name || 'Assigned Supplier'}</p>
+              </div>
+              <button onClick={() => setRejectModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl cursor-pointer">✕</button>
+            </div>
+
+            <form onSubmit={handleRejectSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Rejection Reason <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-rose-500 h-24 resize-none"
+                  placeholder="E.g., Out of stock on requested item lines, factory capacity full, or revised price quote required..."
+                />
+              </div>
+
+              <div className="border-t border-gray-100 pt-4 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setRejectModalOpen(false)}
+                  className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-sm shadow-sm cursor-pointer"
+                >
+                  {actionLoading ? 'Rejecting...' : 'Confirm Rejection'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

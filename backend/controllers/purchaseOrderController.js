@@ -305,10 +305,10 @@ export const updatePurchaseOrderStatus = async (req, res) => {
         return res.status(403).json({ message: 'Access denied: You can only update your own purchase orders' });
       }
 
-      const allowedSupplierActions = ['Confirmed', 'Rejected', 'Processing', 'Shipped'];
+      const allowedSupplierActions = ['Confirmed', 'Rejected'];
       if (!allowedSupplierActions.includes(status)) {
         return res.status(403).json({
-          message: 'Suppliers are only authorized to Confirm, Reject, Process, or Ship purchase orders',
+          message: 'Suppliers are only authorized to Accept (Confirmed) or Reject incoming purchase orders',
         });
       }
 

@@ -16,12 +16,12 @@ router.get('/alerts/low-stock', protect, authorizeRoles('Admin', 'Sales_Manager'
 
 // GET all products, POST new product
 router.route('/')
-  .get(protect, getProducts)
+  .get(protect, authorizeRoles('Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Customer'), getProducts)
   .post(protect, authorizeRoles('Admin'), createProduct);
 
 // GET, PUT, DELETE single product
 router.route('/:id')
-  .get(protect, getProductById)
+  .get(protect, authorizeRoles('Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Customer'), getProductById)
   .put(protect, authorizeRoles('Admin', 'Inventory_Manager'), updateProduct)
   .delete(protect, authorizeRoles('Admin'), deleteProduct);
 

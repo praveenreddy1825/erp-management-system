@@ -42,15 +42,63 @@ function App() {
           {/* Nested Child Routes render inside the <Outlet /> of Layout */}
           <Route index element={<LandingRedirect />} />
           <Route path="dashboard" element={<Dashboard />} />
-          <Route path="products" element={<Products />} />
-          <Route path="customers" element={<Customers />} />
-          <Route path="suppliers" element={<Suppliers />} />
-          <Route path='sales-orders' element={<SalesOrders />}/>
+          <Route
+            path="products"
+            element={
+              <ProtectedRoute allowedRoles={['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Customer']}>
+                <Products />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="customers"
+            element={
+              <ProtectedRoute allowedRoles={['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Customer']}>
+                <Customers />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="suppliers"
+            element={
+              <ProtectedRoute allowedRoles={['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager']}>
+                <Suppliers />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="sales-orders"
+            element={
+              <ProtectedRoute allowedRoles={['Admin', 'Sales_Manager', 'Purchase_Manager', 'Customer', 'Inventory_Manager']}>
+                <SalesOrders />
+              </ProtectedRoute>
+            }
+          />
           <Route path="purchase-orders" element={<PurchaseOrders />} />
-          <Route path="grns" element={<GRNs />} />
-          <Route path='invoices' element={<Invoices/>}/>
-          <Route path="users" element={<Users />} />
-
+          <Route
+            path="grns"
+            element={
+              <ProtectedRoute allowedRoles={['Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager']}>
+                <GRNs />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="invoices"
+            element={
+              <ProtectedRoute allowedRoles={['Admin', 'Sales_Manager', 'Purchase_Manager', 'Customer', 'Inventory_Manager']}>
+                <Invoices />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="users"
+            element={
+              <ProtectedRoute allowedRoles={['Admin']}>
+                <Users />
+              </ProtectedRoute>
+            }
+          />
         </Route>
       </Routes>
     </BrowserRouter>
