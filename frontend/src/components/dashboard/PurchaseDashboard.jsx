@@ -40,8 +40,12 @@ const PurchaseDashboard = () => {
         .filter((o) => o.status !== 'Cancelled')
         .reduce((sum, o) => sum + (o.TotalAmount || 0), 0);
 
-      const pendingCount = orders.filter((o) => o.status === 'Ordered' || o.status === 'Pending').length;
-      const shippedCount = orders.filter((o) => o.status === 'Shipped').length;
+      const pendingCount = orders.filter((o) =>
+        ['Pending', 'Confirmed', 'Processing'].includes(o.status)
+      ).length;
+      const shippedCount = orders.filter((o) =>
+        ['Shipped', 'Partially_Received'].includes(o.status)
+      ).length;
 
       setMetrics({
         procurementCost: totalPurchVal,
@@ -53,9 +57,9 @@ const PurchaseDashboard = () => {
       setRecentPOs(orders.slice(0, 5));
 
       // Prepare Purchase Order status breakdown
-      const statuses = ['Ordered', 'Shipped', 'Delivered', 'Cancelled'];
+      const statuses = ['Pending', 'Confirmed', 'Processing', 'Shipped', 'Partially_Received', 'Delivered', 'Cancelled'];
       const statusCounts = statuses.map((status) => ({
-        name: status,
+        name: status.replace('_', ' '),
         Count: orders.filter((o) => o.status === status).length,
       }));
       setChartData(statusCounts);

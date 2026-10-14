@@ -2,84 +2,118 @@ import mongoose from 'mongoose';
 import GRN from '../models/GRN.js';
 import PurchaseOrder from '../models/PurchaseOrder.js';
 import Product from '../models/Product.js';
-import User from '../models/User.js';
 import { runTransaction } from '../utils/transactionHelper.js';
 
-// @desc    Create a new Goods Receipt Note (GRN) & update inventory stock
+// @desc    Create a new Goods Receipt Note (GRN) & atomically update inventory stock
 // @route   POST /api/grns
 // @access  Private (Admin, Inventory_Manager)
 export const createGRN = async (req, res) => {
   try {
-    const { purchaseOrder, productsReceived, remarks } = req.body;
+    const {
+      purchaseOrder: poId,
+      productsReceived,
+      receivedItems,
+      items,
+      deliveryReference,
+      packingSlipNumber,
+      remarks,
+    } = req.body;
 
-    // 1. Input Validation: Check non-empty receipt items
-    if (!purchaseOrder) {
+    const itemsReceived = productsReceived || receivedItems || items;
+
+    // 1. Input Validation
+    if (!poId) {
       return res.status(400).json({ message: 'Purchase Order ID is required' });
     }
 
-    if (!productsReceived || !Array.isArray(productsReceived) || productsReceived.length === 0) {
-      return res.status(400).json({ message: 'GRN must contain at least one received product item' });
+    if (!itemsReceived || !Array.isArray(itemsReceived) || itemsReceived.length === 0) {
+      return res.status(400).json({ message: 'GRN must contain at least one received product line item' });
     }
 
-    // 2. Verify Purchase Order existence and status
-    const po = await PurchaseOrder.findById(purchaseOrder);
+    // 2. Fetch and verify Purchase Order status
+    const po = await PurchaseOrder.findById(poId);
     if (!po) {
       return res.status(404).json({ message: 'Purchase Order not found' });
-    }
-
-    if (po.status === 'Delivered') {
-      return res.status(400).json({ message: 'This Purchase Order has already been fully delivered and received' });
     }
 
     if (po.status === 'Cancelled') {
       return res.status(400).json({ message: 'Cannot generate a Goods Receipt Note for a cancelled Purchase Order' });
     }
 
-    // 3. Map ordered quantities from the Purchase Order
+    if (po.status === 'Delivered') {
+      return res.status(400).json({ message: 'This Purchase Order has already been fully delivered and received' });
+    }
+
+    const eligibleStatuses = ['Confirmed', 'Processing', 'Shipped', 'Partially_Received', 'Pending'];
+    if (!eligibleStatuses.includes(po.status)) {
+      return res.status(400).json({
+        message: `Purchase Order is in "${po.status}" status and is not eligible for goods receipt`,
+      });
+    }
+
+    // 3. Map ordered quantities from the PO
     const orderedQtyMap = {};
     po.products.forEach((p) => {
-      const prodId = (p.product._id || p.product).toString();
+      const prodId = (p.product?._id || p.product).toString();
       orderedQtyMap[prodId] = p.quantity;
     });
 
-    // 4. Fetch all past GRNs for this PO to compute previously received quantities
-    const pastGRNs = await GRN.find({ purchaseOrder });
-    const pastReceivedQtyMap = {};
+    // 4. Fetch past GRNs for this PO to compute previously accepted and received quantities
+    const pastGRNs = await GRN.find({ purchaseOrder: poId, status: { $ne: 'Cancelled' } });
+    const pastAcceptedMap = {};
+    const pastReceivedMap = {};
+
     pastGRNs.forEach((g) => {
       g.productsReceived.forEach((p) => {
-        const prodId = (p.product._id || p.product).toString();
-        pastReceivedQtyMap[prodId] = (pastReceivedQtyMap[prodId] || 0) + p.quantity;
+        const prodId = p.product.toString();
+        pastAcceptedMap[prodId] = (pastAcceptedMap[prodId] || 0) + (p.acceptedQuantity || p.quantity || 0);
+        pastReceivedMap[prodId] = (pastReceivedMap[prodId] || 0) + (p.receivedQuantity || p.quantity || 0);
       });
     });
 
-    // 5. Validate incoming items against order limits & verify products
-    for (const item of productsReceived) {
+    // 5. Validate incoming items, compute accepted/rejected counts
+    const sanitizedReceivedItems = [];
+    let totalAcceptedAcrossReceipt = 0;
+
+    for (const item of itemsReceived) {
       if (!item.product) {
-        return res.status(400).json({ message: 'Product ID is required for each received item' });
+        return res.status(400).json({ message: 'Each received item must specify a valid product ID' });
       }
 
       const prodId = item.product.toString();
-
-      // Check if product was ordered on this PO
       if (!orderedQtyMap[prodId]) {
         return res.status(400).json({
-          message: `Product with ID ${item.product} was not included in this Purchase Order`,
+          message: `Product ID ${item.product} is not part of Purchase Order ${po.poNumber || po._id}`,
         });
       }
 
-      const receivedQty = Number(item.quantity);
-      if (!receivedQty || receivedQty <= 0) {
-        return res.status(400).json({ message: 'Received quantity must be a positive number greater than 0' });
+      const orderedQty = orderedQtyMap[prodId];
+      const previouslyAccepted = pastAcceptedMap[prodId] || 0;
+      const remainingAllowed = Math.max(0, orderedQty - previouslyAccepted);
+
+      // Quantities calculation
+      const receivedQty = item.receivedQuantity !== undefined ? parseInt(item.receivedQuantity, 10) : parseInt(item.quantity, 10);
+      const acceptedQty = item.acceptedQuantity !== undefined ? parseInt(item.acceptedQuantity, 10) : receivedQty;
+      const rejectedQty = item.rejectedQuantity !== undefined ? parseInt(item.rejectedQuantity, 10) : Math.max(0, receivedQty - acceptedQty);
+
+      if (isNaN(receivedQty) || receivedQty < 0) {
+        return res.status(400).json({ message: 'Received quantity cannot be negative' });
+      }
+      if (isNaN(acceptedQty) || acceptedQty < 0) {
+        return res.status(400).json({ message: 'Accepted quantity cannot be negative' });
+      }
+      if (isNaN(rejectedQty) || rejectedQty < 0) {
+        return res.status(400).json({ message: 'Rejected quantity cannot be negative' });
       }
 
-      const orderedQty = orderedQtyMap[prodId];
-      const previouslyReceived = pastReceivedQtyMap[prodId] || 0;
-      const remainingAllowed = orderedQty - previouslyReceived;
+      if (acceptedQty + rejectedQty === 0) {
+        return res.status(400).json({ message: 'Total counted quantity (accepted + rejected) must be at least 1 unit' });
+      }
 
-      // Over-receipt protection: Cannot intake more than remaining balance
-      if (receivedQty > remainingAllowed) {
+      // Over-receipt guard: cannot accept more than remaining balance on this PO
+      if (acceptedQty > remainingAllowed) {
         return res.status(400).json({
-          message: `Received quantity (${receivedQty}) exceeds remaining order balance (${remainingAllowed}) for product ${item.product}. Total ordered: ${orderedQty}, already received: ${previouslyReceived}.`,
+          message: `Accepted quantity (${acceptedQty}) exceeds remaining balance (${remainingAllowed}) for product ${item.product}. Total ordered: ${orderedQty}, already accepted: ${previouslyAccepted}.`,
         });
       }
 
@@ -88,65 +122,85 @@ export const createGRN = async (req, res) => {
       if (!productDoc) {
         return res.status(404).json({ message: `Product not found with ID ${item.product}` });
       }
+
+      sanitizedReceivedItems.push({
+        product: productDoc._id,
+        orderedQuantity: orderedQty,
+        receivedQuantity: receivedQty,
+        acceptedQuantity: acceptedQty,
+        rejectedQuantity: rejectedQty,
+        rejectionReason: item.rejectionReason?.trim(),
+        receivedDate: new Date(),
+      });
+
+      totalAcceptedAcrossReceipt += acceptedQty;
     }
 
-    // 6. Execute atomic operations (using transaction if replica set/Atlas, or direct if standalone)
+    // 6. Execute atomic inventory intake & status transition
     let createdGrnId = null;
     await runTransaction(async (session) => {
-      const createOpts = session ? { session } : {};
       const opts = session ? { session } : {};
 
       // Step A: Create GRN Document
       const [newGrn] = await GRN.create(
         [
           {
-            purchaseOrder,
-            productsReceived: productsReceived.map((item) => ({
-              product: item.product,
-              quantity: Number(item.quantity),
-              receivedDate: new Date(),
-            })),
-            remarks,
+            purchaseOrder: po._id,
+            productsReceived: sanitizedReceivedItems,
+            deliveryReference: deliveryReference?.trim(),
+            packingSlipNumber: packingSlipNumber?.trim(),
+            remarks: remarks?.trim(),
             receivedBy: req.user._id,
-            status: 'Received',
+            status: 'Completed',
           },
         ],
-        createOpts
+        opts
       );
       createdGrnId = newGrn._id;
 
-      // Step B: Atomically increment warehouse stock for each product
-      for (const item of productsReceived) {
-        await Product.findByIdAndUpdate(
-          item.product,
-          { $inc: { stock: Number(item.quantity) } },
-          opts
-        );
+      // Step B: Atomically increment warehouse product stock ONLY for ACCEPTED quantities
+      for (const item of sanitizedReceivedItems) {
+        if (item.acceptedQuantity > 0) {
+          await Product.findByIdAndUpdate(
+            item.product,
+            { $inc: { stock: item.acceptedQuantity } },
+            opts
+          );
+        }
       }
 
-      // Step C: Calculate cumulative totals to evaluate full vs partial delivery
-      const cumulativeReceivedMap = { ...pastReceivedQtyMap };
-      productsReceived.forEach((item) => {
+      // Step C: Evaluate if PO is fully fulfilled or partially received
+      const cumulativeAcceptedMap = { ...pastAcceptedMap };
+      sanitizedReceivedItems.forEach((item) => {
         const prodId = item.product.toString();
-        cumulativeReceivedMap[prodId] = (cumulativeReceivedMap[prodId] || 0) + Number(item.quantity);
+        cumulativeAcceptedMap[prodId] = (cumulativeAcceptedMap[prodId] || 0) + item.acceptedQuantity;
       });
 
-      let allFullyReceived = true;
+      let allLinesFullyDelivered = true;
       for (const prodId in orderedQtyMap) {
         const ordered = orderedQtyMap[prodId];
-        const totalReceived = cumulativeReceivedMap[prodId] || 0;
-        if (totalReceived < ordered) {
-          allFullyReceived = false;
+        const cumulativeAccepted = cumulativeAcceptedMap[prodId] || 0;
+        if (cumulativeAccepted < ordered) {
+          allLinesFullyDelivered = false;
           break;
         }
       }
 
-      // Step D: Transition Purchase Order status based on completion
-      po.status = allFullyReceived ? 'Delivered' : 'Processing';
+      const nextStatus = allLinesFullyDelivered ? 'Delivered' : 'Partially_Received';
+      const prevStatus = po.status;
+
+      po.status = nextStatus;
+      po.statusHistory.push({
+        fromStatus: prevStatus,
+        toStatus: nextStatus,
+        changedBy: req.user._id,
+        changedAt: new Date(),
+        notes: `Goods received via GRN ${newGrn.grnNumber}. Total accepted this delivery: ${totalAcceptedAcrossReceipt} units.`,
+      });
+
       await (session ? po.save({ session }) : po.save());
     });
 
-    // 7. Return populated result
     const populatedGRN = await GRN.findById(createdGrnId)
       .populate({
         path: 'purchaseOrder',
@@ -162,17 +216,22 @@ export const createGRN = async (req, res) => {
   }
 };
 
-// @desc    Get all GRNs
+// @desc    Get all Goods Receipt Notes (with Pagination & Population)
 // @route   GET /api/grns
-// @access  Private
+// @access  Private (Admin, Inventory_Manager, Purchase_Manager, Sales_Manager)
 export const getGRNs = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
     const skip = (page - 1) * limit;
 
-    const total = await GRN.countDocuments();
-    const grns = await GRN.find()
+    const filter = {};
+    if (req.query.purchaseOrder) {
+      filter.purchaseOrder = req.query.purchaseOrder;
+    }
+
+    const total = await GRN.countDocuments(filter);
+    const grns = await GRN.find(filter)
       .populate({
         path: 'purchaseOrder',
         populate: { path: 'supplier' },
@@ -186,15 +245,16 @@ export const getGRNs = async (req, res) => {
     res.status(200).json({
       grns,
       page,
-      pages: Math.ceil(total / limit),
+      pages: Math.ceil(total / limit) || 1,
       totalGRNs: total,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching GRNs:', error);
+    res.status(500).json({ message: error.message || 'Failed to fetch GRN logs' });
   }
 };
 
-// @desc    Get GRN by ID
+// @desc    Get single Goods Receipt Note by ID
 // @route   GET /api/grns/:id
 // @access  Private
 export const getGRNById = async (req, res) => {
@@ -208,10 +268,11 @@ export const getGRNById = async (req, res) => {
       .populate('receivedBy', 'name email');
 
     if (!grn) {
-      return res.status(404).json({ message: 'GRN record not found' });
+      return res.status(404).json({ message: 'Goods Receipt Note not found' });
     }
+
     res.status(200).json(grn);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: error.message || 'Failed to fetch GRN details' });
   }
 };

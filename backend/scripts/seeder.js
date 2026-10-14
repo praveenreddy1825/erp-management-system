@@ -106,50 +106,13 @@ const seedDatabase = async () => {
         phone_number: '9833445566',
         role: 'Customer',
       },
-
-      // Suppliers (Credentials matching supplier contact profiles)
-      {
-        name: 'Kirana Distributors Ltd',
-        email: 'wholesale@kirana.com',
-        password: 'Welcome@123',
-        phone_number: '9988776655',
-        role: 'Supplier',
-      },
-      {
-        name: 'Nestle India Foods',
-        email: 'sales@nestle.in',
-        password: 'Welcome@123',
-        phone_number: '8877665544',
-        role: 'Supplier',
-      },
-      {
-        name: 'ITC Supply Chain Corp',
-        email: 'orders@itcportal.com',
-        password: 'Welcome@123',
-        phone_number: '7766554433',
-        role: 'Supplier',
-      },
-      {
-        name: 'Amul Gujarat Federation',
-        email: 'supply@amuldairy.com',
-        password: 'Welcome@123',
-        phone_number: '6655443322',
-        role: 'Supplier',
-      },
-      {
-        name: 'Hindustan Unilever B2B',
-        email: 'b2b@hindustanunilever.com',
-        password: 'Welcome@123',
-        phone_number: '9911223344',
-        role: 'Supplier',
-      },
     ]);
 
     const adminUser = users[0];
     const salesMgr = users[1];
     const purchaseMgr = users[2];
     const inventoryMgr = users[3];
-    console.log(`Seeded ${users.length} user accounts with compliant credentials.`);
+    console.log(`Seeded ${users.length} enterprise staff and customer accounts.`);
 
     console.log('Seeding enterprise Product catalog...');
     const products = await Product.insertMany([
@@ -439,11 +402,11 @@ const seedDatabase = async () => {
     ]);
 
     const suppliers = await Supplier.insertMany([
-      { name: 'Kirana Distributors Ltd', contactInfo: supplierContacts[0]._id },
-      { name: 'Nestle India Foods', contactInfo: supplierContacts[1]._id },
-      { name: 'ITC Supply Chain Corp', contactInfo: supplierContacts[2]._id },
-      { name: 'Amul Gujarat Federation', contactInfo: supplierContacts[3]._id },
-      { name: 'Hindustan Unilever B2B', contactInfo: supplierContacts[4]._id },
+      { name: 'Kirana Distributors Ltd', contactInfo: supplierContacts[0]._id, isActive: true },
+      { name: 'Nestle India Foods', contactInfo: supplierContacts[1]._id, isActive: true },
+      { name: 'ITC Supply Chain Corp', contactInfo: supplierContacts[2]._id, isActive: true },
+      { name: 'Amul Gujarat Federation', contactInfo: supplierContacts[3]._id, isActive: true },
+      { name: 'Hindustan Unilever B2B', contactInfo: supplierContacts[4]._id, isActive: true },
     ]);
     console.log(`Seeded ${suppliers.length} Supplier distributor profiles.`);
 
@@ -631,6 +594,7 @@ const seedDatabase = async () => {
     console.log('Seeding Purchase Orders to vendors/suppliers...');
     const purchaseOrdersData = [
       {
+        poNumber: 'PO-20261001-1001',
         supplier: suppliers[0]._id, // Kirana Distributors Ltd
         products: [
           { product: products[0]._id, quantity: 40, price: 110 }, // Fortune Oil
@@ -639,10 +603,19 @@ const seedDatabase = async () => {
         remarks: 'Emergency restock for low grocery inventory',
         status: 'Delivered',
         paymentStatus: 'Paid',
+        paidAmount: 10900,
         DateOfOrder: daysAgo(12),
         createdBy: purchaseMgr._id,
+        statusHistory: [
+          { fromStatus: 'None', toStatus: 'Pending', changedBy: purchaseMgr._id, changedAt: daysAgo(12), notes: 'Drafted' },
+          { fromStatus: 'Pending', toStatus: 'Confirmed', changedBy: purchaseMgr._id, changedAt: daysAgo(11), notes: 'Supplier confirmed' },
+          { fromStatus: 'Confirmed', toStatus: 'Processing', changedBy: purchaseMgr._id, changedAt: daysAgo(11), notes: 'Packaging' },
+          { fromStatus: 'Processing', toStatus: 'Shipped', changedBy: purchaseMgr._id, changedAt: daysAgo(10), notes: 'Dispatched via Express Logistics' },
+          { fromStatus: 'Shipped', toStatus: 'Delivered', changedBy: inventoryMgr._id, changedAt: daysAgo(10), notes: 'Fully received via GRN-2026-001' },
+        ],
       },
       {
+        poNumber: 'PO-20261002-1002',
         supplier: suppliers[1]._id, // Nestle India Foods
         products: [
           { product: products[6]._id, quantity: 100, price: 145 }, // Maggi Noodles
@@ -651,10 +624,18 @@ const seedDatabase = async () => {
         remarks: 'Bulk distribution contract consignment',
         status: 'Delivered',
         paymentStatus: 'Paid',
+        paidAmount: 25300,
         DateOfOrder: daysAgo(15),
         createdBy: purchaseMgr._id,
+        statusHistory: [
+          { fromStatus: 'None', toStatus: 'Pending', changedBy: purchaseMgr._id, changedAt: daysAgo(15), notes: 'Drafted' },
+          { fromStatus: 'Pending', toStatus: 'Confirmed', changedBy: purchaseMgr._id, changedAt: daysAgo(14), notes: 'Supplier confirmed' },
+          { fromStatus: 'Confirmed', toStatus: 'Shipped', changedBy: purchaseMgr._id, changedAt: daysAgo(13), notes: 'Cargo in transit' },
+          { fromStatus: 'Shipped', toStatus: 'Delivered', changedBy: inventoryMgr._id, changedAt: daysAgo(13), notes: 'Fully received via GRN-2026-002' },
+        ],
       },
       {
+        poNumber: 'PO-20261003-1003',
         supplier: suppliers[2]._id, // ITC Supply Chain Corp
         products: [
           { product: products[2]._id, quantity: 30, price: 260 },  // Atta
@@ -663,22 +644,39 @@ const seedDatabase = async () => {
         remarks: 'Quarterly direct farm-to-warehouse grain dispatch',
         status: 'Shipped',
         paymentStatus: 'partial',
+        paidAmount: 7000,
+        carrier: 'Blue Dart Freight',
+        trackingNumber: 'BDF-998822',
         DateOfOrder: daysAgo(4),
         createdBy: purchaseMgr._id,
+        statusHistory: [
+          { fromStatus: 'None', toStatus: 'Pending', changedBy: purchaseMgr._id, changedAt: daysAgo(4), notes: 'Drafted' },
+          { fromStatus: 'Pending', toStatus: 'Confirmed', changedBy: purchaseMgr._id, changedAt: daysAgo(3), notes: 'Vendor acknowledged' },
+          { fromStatus: 'Confirmed', toStatus: 'Processing', changedBy: purchaseMgr._id, changedAt: daysAgo(3), notes: 'Packing bulk grains' },
+          { fromStatus: 'Processing', toStatus: 'Shipped', changedBy: purchaseMgr._id, changedAt: daysAgo(1), notes: 'Shipped on truck #DL-1A-9821' },
+        ],
       },
       {
+        poNumber: 'PO-20261004-1004',
         supplier: suppliers[3]._id, // Amul Gujarat Federation
         products: [
           { product: products[10]._id, quantity: 60, price: 245 }, // Amul Butter
           { product: products[11]._id, quantity: 80, price: 62 },  // Taaza Milk
         ],
         remarks: 'Cold-chain dairy replenishment scheduled bi-weekly',
-        status: 'Processing',
+        status: 'Partially_Received',
         paymentStatus: 'unpaid',
         DateOfOrder: daysAgo(2),
         createdBy: purchaseMgr._id,
+        statusHistory: [
+          { fromStatus: 'None', toStatus: 'Pending', changedBy: purchaseMgr._id, changedAt: daysAgo(2), notes: 'Drafted' },
+          { fromStatus: 'Pending', toStatus: 'Confirmed', changedBy: purchaseMgr._id, changedAt: daysAgo(2), notes: 'Amul confirmed' },
+          { fromStatus: 'Confirmed', toStatus: 'Processing', changedBy: purchaseMgr._id, changedAt: daysAgo(1), notes: 'Cold-chain packaging' },
+          { fromStatus: 'Processing', toStatus: 'Partially_Received', changedBy: inventoryMgr._id, changedAt: daysAgo(1), notes: 'Butter received via GRN-2026-003, Milk pending' },
+        ],
       },
       {
+        poNumber: 'PO-20261005-1005',
         supplier: suppliers[4]._id, // Hindustan Unilever B2B
         products: [
           { product: products[16]._id, quantity: 50, price: 125 }, // Surf Excel
@@ -686,12 +684,17 @@ const seedDatabase = async () => {
           { product: products[21]._id, quantity: 30, price: 210 }, // Dove Soap
         ],
         remarks: 'FMCG household hygiene batch order',
-        status: 'Pending',
+        status: 'Confirmed',
         paymentStatus: 'unpaid',
         DateOfOrder: daysAgo(1),
         createdBy: purchaseMgr._id,
+        statusHistory: [
+          { fromStatus: 'None', toStatus: 'Pending', changedBy: purchaseMgr._id, changedAt: daysAgo(1), notes: 'Drafted' },
+          { fromStatus: 'Pending', toStatus: 'Confirmed', changedBy: purchaseMgr._id, changedAt: daysAgo(1), notes: 'HUL sales rep confirmed acceptance' },
+        ],
       },
       {
+        poNumber: 'PO-20261006-1006',
         supplier: suppliers[0]._id, // Kirana Distributors Ltd
         products: [
           { product: products[1]._id, quantity: 120, price: 24 }, // Tata Salt
@@ -702,17 +705,25 @@ const seedDatabase = async () => {
         paymentStatus: 'unpaid',
         DateOfOrder: now,
         createdBy: adminUser._id,
+        statusHistory: [
+          { fromStatus: 'None', toStatus: 'Pending', changedBy: adminUser._id, changedAt: now, notes: 'PO created' },
+        ],
       },
       {
+        poNumber: 'PO-20261007-1007',
         supplier: suppliers[1]._id, // Nestle India Foods
         products: [
           { product: products[14]._id, quantity: 15, price: 540 }, // Coffee
         ],
-        remarks: 'Vendor price mismatch - re-quotation requested',
+        remarks: 'Vendor price mismatch - cancelled for renegotiation',
         status: 'Cancelled',
         paymentStatus: 'unpaid',
         DateOfOrder: daysAgo(8),
         createdBy: purchaseMgr._id,
+        statusHistory: [
+          { fromStatus: 'None', toStatus: 'Pending', changedBy: purchaseMgr._id, changedAt: daysAgo(8), notes: 'Drafted' },
+          { fromStatus: 'Pending', toStatus: 'Cancelled', changedBy: purchaseMgr._id, changedAt: daysAgo(7), notes: 'Price discrepancy cancel' },
+        ],
       },
     ];
 
@@ -730,34 +741,39 @@ const seedDatabase = async () => {
         grnNumber: 'GRN-2026-001',
         purchaseOrder: purchaseOrders[0]._id, // Kirana Distributors PO Delivered
         productsReceived: [
-          { product: products[0]._id, quantity: 40, receivedDate: daysAgo(10) },
-          { product: products[2]._id, quantity: 25, receivedDate: daysAgo(10) },
+          { product: products[0]._id, orderedQuantity: 40, receivedQuantity: 40, acceptedQuantity: 40, rejectedQuantity: 0, receivedDate: daysAgo(10) },
+          { product: products[2]._id, orderedQuantity: 25, receivedQuantity: 25, acceptedQuantity: 25, rejectedQuantity: 0, receivedDate: daysAgo(10) },
         ],
+        deliveryReference: 'TRK-9821-DEL',
+        packingSlipNumber: 'PS-KIR-8821',
         remarks: 'Full consignment received at Dock #2. Pallets sealed and verified by warehouse lead.',
         receivedBy: inventoryMgr._id,
-        status: 'Received',
+        status: 'Completed',
       },
       {
         grnNumber: 'GRN-2026-002',
         purchaseOrder: purchaseOrders[1]._id, // Nestle India PO Delivered
         productsReceived: [
-          { product: products[6]._id, quantity: 100, receivedDate: daysAgo(13) },
-          { product: products[14]._id, quantity: 20, receivedDate: daysAgo(13) },
+          { product: products[6]._id, orderedQuantity: 100, receivedQuantity: 100, acceptedQuantity: 100, rejectedQuantity: 0, receivedDate: daysAgo(13) },
+          { product: products[14]._id, orderedQuantity: 20, receivedQuantity: 20, acceptedQuantity: 20, rejectedQuantity: 0, receivedDate: daysAgo(13) },
         ],
+        deliveryReference: 'NESTLE-LOG-7721',
+        packingSlipNumber: 'NEST-PS-449',
         remarks: 'Cartons intact, manufacturing dates within 30 days. Logged into Warehouse Section B.',
         receivedBy: inventoryMgr._id,
-        status: 'Received',
+        status: 'Completed',
       },
       {
         grnNumber: 'GRN-2026-003',
-        purchaseOrder: purchaseOrders[3]._id, // Amul Dairy PO Processing (Partial intake)
+        purchaseOrder: purchaseOrders[3]._id, // Amul Dairy PO Partially_Received
         productsReceived: [
-          { product: products[10]._id, quantity: 60, receivedDate: daysAgo(1) },
-          // Milk delivery expected tomorrow in refrigerated vehicle
+          { product: products[10]._id, orderedQuantity: 60, receivedQuantity: 60, acceptedQuantity: 60, rejectedQuantity: 0, receivedDate: daysAgo(1) },
         ],
+        deliveryReference: 'AMUL-REEFER-04',
+        packingSlipNumber: 'AMUL-INV-892',
         remarks: 'Partial delivery received: 60 units Butter safely moved to cold storage. Milk crates pending next dispatch.',
         receivedBy: inventoryMgr._id,
-        status: 'Received',
+        status: 'Completed',
       },
     ]);
     console.log(`Seeded ${grns.length} Goods Receipt Notes demonstrating complete & partial inventory intake.`);

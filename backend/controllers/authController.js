@@ -2,10 +2,15 @@ import User from '../models/User.js'
 import generateToken from '../utils/generateToken.js';
 import Contact from '../models/Contact.js';
 import Customer from '../models/Customer.js';
-
 export const registerUser=async(req,res)=>{
     try{
         const {name,email,password,phone_number,role}=req.body;
+        // Public registration cannot grant privileged internal roles
+        if (role && role !== 'Customer') {
+            return res.status(403).json({ message: 'Public registration for privileged roles is not permitted' });
+        }
+        const assignedRole = 'Customer';
+
         //check for existing user
         const userExists=await User.findOne({email});
         if(userExists){
@@ -13,11 +18,9 @@ export const registerUser=async(req,res)=>{
         }
 
         // If Customer is self-registering, check/prevent duplicate email in contact list
-        if (role === 'Customer') {
-            const emailInContacts = await Contact.findOne({ email });
-            if (emailInContacts) {
-                return res.status(400).json({ message: 'Customer email already registered in system directory' });
-            }
+        const emailInContacts = await Contact.findOne({ email });
+        if (emailInContacts) {
+            return res.status(400).json({ message: 'Customer email already registered in system directory' });
         }
 
         const user=await User.create({
@@ -25,11 +28,11 @@ export const registerUser=async(req,res)=>{
             email,
             password,
             phone_number,
-            role
+            role: assignedRole
         });
         if(user){
             // If Customer role, auto-create Customer document and Contact record
-            if (role === 'Customer') {
+            if (assignedRole === 'Customer') {
                 const contact = await Contact.create({
                     email,
                     phone_number,
