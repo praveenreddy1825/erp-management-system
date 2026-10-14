@@ -553,10 +553,10 @@ describe('End-to-End Procurement, PO, GRN & Inventory Workflow Integration Tests
         assert.equal(res.status, 400, 'Receipt against fully delivered PO must be rejected');
     });
 
-    test('12. Payment Tracking: Partial payment, overpayment rejection, and fulfillment independence', async () => {
-        // Total amount is 1062. Initial paidAmount is 0.
-        // Record partial payment of $500.
-        const payRes1 = await fetch(`${baseUrl}/purchase-orders/${createdPurchaseOrder._id}/payments`, {
+    test('12. Payment Tracking: Partial payment rejection, overpayment rejection, and full settlement', async () => {
+        // Total amount is 900. Payments are full payments only.
+        // Attempting partial payment of $500 must be rejected per enterprise business rules.
+        const payResPartial = await fetch(`${baseUrl}/purchase-orders/${createdPurchaseOrder._id}/payments`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -565,19 +565,16 @@ describe('End-to-End Procurement, PO, GRN & Inventory Workflow Integration Tests
             body: JSON.stringify({
                 amount: 500,
                 paymentMethod: 'Bank Transfer',
-                referenceNumber: 'WIRE-2026-001',
-                notes: 'First installment 500 USD'
+                referenceNumber: 'WIRE-2026-PARTIAL',
+                notes: 'Partial payment attempt'
             })
         });
 
-        assert.ok([200, 201].includes(payRes1.status), 'Partial payment should be recorded');
-        const payData1 = await payRes1.json();
-        assert.equal(payData1.paidAmount, 500);
-        assert.equal(payData1.paymentStatus, 'partial');
-        assert.equal(payData1.order.payments.length, 1);
+        assert.equal(payResPartial.status, 400, 'Partial payment must be rejected');
+        const partErr = await payResPartial.json();
+        assert.match(partErr.message, /full payments only/i);
 
-        // Overpayment test: Outstanding is 900 - 500 = 400.
-        // Attempting to pay $500 must be rejected.
+        // Overpayment test: Attempting to pay $1000 must be rejected
         const payResOver = await fetch(`${baseUrl}/purchase-orders/${createdPurchaseOrder._id}/payments`, {
             method: 'POST',
             headers: {
@@ -585,14 +582,12 @@ describe('End-to-End Procurement, PO, GRN & Inventory Workflow Integration Tests
                 'Authorization': `Bearer ${purchaseManagerToken}`
             },
             body: JSON.stringify({
-                amount: 500,
+                amount: 1000,
                 paymentMethod: 'Bank Transfer',
                 referenceNumber: 'WIRE-2026-OVER'
             })
         });
         assert.equal(payResOver.status, 400, 'Overpayment must be rejected');
-        const overErr = await payResOver.json();
-        assert.match(overErr.message, /exceeds.*outstanding balance/i);
 
         // Negative payment test
         const payResNeg = await fetch(`${baseUrl}/purchase-orders/${createdPurchaseOrder._id}/payments`, {
@@ -608,7 +603,7 @@ describe('End-to-End Procurement, PO, GRN & Inventory Workflow Integration Tests
         });
         assert.equal(payResNeg.status, 400, 'Negative payment must be rejected');
 
-        // Settle remaining balance of 400
+        // Settle exact full balance of $900
         const payResFinal = await fetch(`${baseUrl}/purchase-orders/${createdPurchaseOrder._id}/payments`, {
             method: 'POST',
             headers: {
@@ -616,13 +611,13 @@ describe('End-to-End Procurement, PO, GRN & Inventory Workflow Integration Tests
                 'Authorization': `Bearer ${purchaseManagerToken}`
             },
             body: JSON.stringify({
-                amount: 400,
+                amount: 900,
                 paymentMethod: 'Bank Transfer',
                 referenceNumber: 'WIRE-2026-FINAL',
-                notes: 'Final settlement'
+                notes: 'Full supplier disbursement settlement'
             })
         });
-        assert.ok([200, 201].includes(payResFinal.status));
+        assert.ok([200, 201].includes(payResFinal.status), 'Full settlement should succeed');
         const finalPayData = await payResFinal.json();
         assert.equal(finalPayData.paidAmount, 900);
         assert.equal(finalPayData.paymentStatus, 'Paid');

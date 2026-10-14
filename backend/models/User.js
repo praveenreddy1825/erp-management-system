@@ -41,6 +41,16 @@ const userSchema=new mongoose.Schema({
         type:String,
         enum:['Admin','Customer','Purchase_Manager','Sales_Manager','Inventory_Manager','Supplier'],
         default:'Customer'
+    },
+    supplierProfile: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Supplier',
+        default: null,
+        index: true
+    },
+    mustChangePassword: {
+        type: Boolean,
+        default: false
     }
 },
  {

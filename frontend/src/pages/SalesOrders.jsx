@@ -739,17 +739,28 @@ const SalesOrders = () => {
                           className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
                         >
                           <option value="">-- Choose Product --</option>
-                          {products.map((p) => (
-                            <option key={p._id} value={p._id} disabled={p.stock <= 0}>
-                              {p.name} (${p.price} | Stock: {p.stock} units)
-                            </option>
-                          ))}
+                          {products.map((p) => {
+                            const onHand = typeof p.onHand === 'number' ? p.onHand : (p.stock || 0);
+                            const reserved = typeof p.reserved === 'number' ? p.reserved : 0;
+                            const available = typeof p.available === 'number' ? p.available : Math.max(0, onHand - reserved);
+                            return (
+                              <option key={p._id} value={p._id} disabled={available <= 0}>
+                                {p.name} (${p.price} | Available: {available} units)
+                              </option>
+                            );
+                          })}
                         </select>
                         <input
                           type="number"
                           required
                           min="1"
-                          max={selectedProductObj ? selectedProductObj.stock : 9999}
+                          max={
+                            selectedProductObj
+                              ? (typeof selectedProductObj.available === 'number'
+                                  ? selectedProductObj.available
+                                  : (selectedProductObj.stock || 9999))
+                              : 9999
+                          }
                           value={item.quantity}
                           onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
                           className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"

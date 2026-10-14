@@ -4,7 +4,7 @@ import Contact from '../models/Contact.js';
 import Customer from '../models/Customer.js';
 import User from '../models/User.js';
 
-// @desc    Create a new Invoice for a Sales Order
+// @desc    Create a new Invoice for a fulfilled Sales Order
 // @route   POST /api/invoices
 // @access  Private (Admin, Sales_Manager)
 export const createInvoice = async (req, res) => {
@@ -17,32 +17,46 @@ export const createInvoice = async (req, res) => {
       return res.status(404).json({ message: 'Sales Order not found' });
     }
 
-    // 2. Check if an invoice has already been generated for this Sales Order
-    const invoiceExists = await Invoice.findOne({ salesOrder });
-    if (invoiceExists) {
-      return res.status(400).json({ 
-        message: 'An invoice has already been created for this Sales Order',
-        invoiceNumber: invoiceExists.invoiceNumber 
+    // 2. Master Prompt Section 10: Invoices generated ONLY after successful sales-order fulfilment
+    if (!['Fulfilled', 'Delivered'].includes(order.status)) {
+      return res.status(400).json({
+        message: `Invoices can only be generated after an order is fulfilled. Current status is "${order.status}".`,
       });
     }
 
-    // 3. Create the Invoice
+    // 3. Check for existing invoice
+    const invoiceExists = await Invoice.findOne({ salesOrder });
+    if (invoiceExists) {
+      return res.status(400).json({
+        message: 'An invoice has already been created for this Sales Order',
+        invoiceNumber: invoiceExists.invoiceNumber,
+      });
+    }
+
+    const invoiceNumber = `INV-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // 4. Create Invoice
     const invoice = await Invoice.create({
-      salesOrder,
+      invoiceNumber,
+      salesOrder: order._id,
+      customer: order.customer,
+      totalAmount: order.TotalAmount,
+      paymentStatus: 'Unpaid',
       dueDate,
       remarks,
     });
 
-    // Populate full details for the response
     const populatedInvoice = await Invoice.findById(invoice._id)
       .populate({
         path: 'salesOrder',
         populate: [
-          { path: 'customer', populate: { path: 'contactInfo' } }, // Customer profile + contact details
-          { path: 'products.product' },                             // Products purchased
-          { path: 'createdBy', select: 'name email' }               // Employee who placed order
-        ]
-      });
+          { path: 'customer', populate: { path: 'contactInfo' } },
+          { path: 'products.product' },
+          { path: 'createdBy', select: 'name email' },
+        ],
+      })
+      .populate('customer')
+      .populate('recordedBy', 'name email');
 
     res.status(201).json(populatedInvoice);
   } catch (error) {
@@ -50,7 +64,7 @@ export const createInvoice = async (req, res) => {
   }
 };
 
-// @desc    Get all Invoices (with Pagination)
+// @desc    Get all Invoices (with Pagination & Scoping)
 // @route   GET /api/invoices
 // @access  Private
 export const getInvoices = async (req, res) => {
@@ -73,10 +87,7 @@ export const getInvoices = async (req, res) => {
       const contact = await Contact.findOne({ email: req.user.email });
       const customerDoc = await Customer.findOne({ contactInfo: contact?._id });
       if (customerDoc) {
-        // Find all SalesOrders for this customer
-        const salesOrders = await SalesOrder.find({ customer: customerDoc._id }).select('_id');
-        const salesOrderIds = salesOrders.map(so => so._id);
-        filter.salesOrder = { $in: salesOrderIds };
+        filter.customer = customerDoc._id;
       } else {
         return res.status(200).json({
           invoices: [],
@@ -87,17 +98,26 @@ export const getInvoices = async (req, res) => {
       }
     }
 
+    if (req.query.paymentStatus) {
+      filter.paymentStatus = req.query.paymentStatus;
+    }
+
+    if (req.query.search) {
+      filter.invoiceNumber = { $regex: req.query.search.trim(), $options: 'i' };
+    }
+
     const total = await Invoice.countDocuments(filter);
-    
-    // Deep populate the relationships to return complete details
+
     const invoices = await Invoice.find(filter)
       .populate({
         path: 'salesOrder',
         populate: [
           { path: 'customer', populate: { path: 'contactInfo' } },
-          { path: 'products.product' }
-        ]
+          { path: 'products.product' },
+        ],
       })
+      .populate('customer')
+      .populate('recordedBy', 'name email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -105,7 +125,7 @@ export const getInvoices = async (req, res) => {
     res.status(200).json({
       invoices,
       page,
-      pages: Math.ceil(total / limit),
+      pages: Math.ceil(total / limit) || 1,
       totalInvoices: total,
     });
   } catch (error) {
@@ -128,9 +148,11 @@ export const getInvoiceById = async (req, res) => {
         populate: [
           { path: 'customer', populate: { path: 'contactInfo' } },
           { path: 'products.product' },
-          { path: 'createdBy', select: 'name email' }
-        ]
-      });
+          { path: 'createdBy', select: 'name email' },
+        ],
+      })
+      .populate('customer')
+      .populate('recordedBy', 'name email');
 
     if (!invoice) {
       return res.status(404).json({ message: 'Invoice not found' });
@@ -140,7 +162,7 @@ export const getInvoiceById = async (req, res) => {
     if (req.user && req.user.role === 'Customer') {
       const contact = await Contact.findOne({ email: req.user.email });
       const customerDoc = await Customer.findOne({ contactInfo: contact?._id });
-      if (!customerDoc || !invoice.salesOrder || invoice.salesOrder.customer._id.toString() !== customerDoc._id.toString()) {
+      if (!customerDoc || invoice.customer.toString() !== customerDoc._id.toString()) {
         return res.status(403).json({ message: 'Not authorized to view this invoice' });
       }
     }
@@ -148,5 +170,69 @@ export const getInvoiceById = async (req, res) => {
     res.status(200).json(invoice);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Record customer payment against an eligible invoice
+// @route   POST /api/invoices/:id/payments
+// @access  Private (Admin, Sales_Manager)
+export const recordCustomerPayment = async (req, res) => {
+  try {
+    const { amount, paymentMethod, reference, notes } = req.body;
+    const invoice = await Invoice.findById(req.params.id);
+
+    if (!invoice) {
+      return res.status(404).json({ message: 'Invoice not found' });
+    }
+
+    if (invoice.paymentStatus === 'Paid') {
+      return res.status(400).json({ message: 'This invoice has already been paid in full' });
+    }
+
+    const payAmount = parseFloat(amount);
+    if (isNaN(payAmount) || payAmount <= 0) {
+      return res.status(400).json({ message: 'Payment amount must be a positive number greater than 0' });
+    }
+
+    // Master Prompt Section 10: Full payments only; no partial payments
+    if (Math.abs(payAmount - invoice.totalAmount) > 0.01) {
+      return res.status(400).json({
+        message: `Payments are full payments only. Payment amount ($${payAmount.toFixed(2)}) must match invoice total ($${invoice.totalAmount.toFixed(2)})`,
+      });
+    }
+
+    invoice.paymentStatus = 'Paid';
+    invoice.paidAmount = invoice.totalAmount;
+    invoice.paidDate = new Date();
+    invoice.paymentMethod = paymentMethod || 'Bank Transfer';
+    invoice.paymentReference = reference?.trim();
+    invoice.recordedBy = req.user._id;
+    if (notes) invoice.remarks = (invoice.remarks ? `${invoice.remarks} | ` : '') + notes.trim();
+
+    await invoice.save();
+
+    // Also synchronize payment status on linked Sales Order
+    if (invoice.salesOrder) {
+      await SalesOrder.findByIdAndUpdate(invoice.salesOrder, { paymentStatus: 'Paid' });
+    }
+
+    const populated = await Invoice.findById(invoice._id)
+      .populate({
+        path: 'salesOrder',
+        populate: [
+          { path: 'customer', populate: { path: 'contactInfo' } },
+          { path: 'products.product' },
+        ],
+      })
+      .populate('customer')
+      .populate('recordedBy', 'name email');
+
+    res.status(200).json({
+      message: 'Customer payment recorded successfully',
+      invoice: populated,
+    });
+  } catch (error) {
+    console.error('Error recording customer payment:', error);
+    res.status(500).json({ message: error.message || 'Failed to record customer payment' });
   }
 };

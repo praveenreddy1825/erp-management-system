@@ -12,6 +12,12 @@ const supplierSchema = new mongoose.Schema(
       ref: 'Contact',
       required: [true, 'Please enter contact info'],
     },
+    userAccount: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
     isActive: {
       type: Boolean,
       default: true,

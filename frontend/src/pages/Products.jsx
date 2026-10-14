@@ -161,23 +161,30 @@ const Products = () => {
                 <th className="p-4">Name</th>
                 <th className="p-4">Category</th>
                 <th className="p-4 text-right">Price</th>
-                {canViewInventory && <th className="p-4 text-center">Stock</th>}
-                {canViewInventory && <th className="p-4">Alert</th>}
+                <th className="p-4 text-center">Available to Order</th>
+                {canViewInventory && <th className="p-4 text-center">On-Hand Physical</th>}
+                {canViewInventory && <th className="p-4 text-center">Reserved</th>}
+                {canViewInventory && <th className="p-4 text-center">Reorder Min</th>}
+                <th className="p-4 text-center">Status</th>
                 {(canEditProductCatalog || canEditInventory) && <th className="p-4 text-center">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-gray-700">
               {loading ? (
                 <tr>
-                  <td colSpan={canViewInventory ? 7 : 5} className="p-8 text-center text-gray-400">Loading inventory catalog...</td>
+                  <td colSpan={canViewInventory ? 10 : 7} className="p-8 text-center text-gray-400">Loading inventory catalog...</td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={canViewInventory ? 7 : 5} className="p-8 text-center text-gray-400">No products found.</td>
+                  <td colSpan={canViewInventory ? 10 : 7} className="p-8 text-center text-gray-400">No products found.</td>
                 </tr>
               ) : (
                 products.map((product) => {
-                  const isLowStock = product.stock <= product.reorderLevel;
+                  const onHand = typeof product.onHand === 'number' ? product.onHand : (product.stock || 0);
+                  const reserved = typeof product.reserved === 'number' ? product.reserved : 0;
+                  const available = typeof product.available === 'number' ? product.available : Math.max(0, onHand - reserved);
+                  const isLowStock = available <= product.reorderLevel;
+
                   return (
                     <tr key={product._id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="p-4 font-mono font-semibold text-gray-900">{product.SKU}</td>
@@ -188,25 +195,44 @@ const Products = () => {
                         </span>
                       </td>
                       <td className="p-4 text-right font-semibold">${product.price.toFixed(2)}</td>
+                      <td className="p-4 text-center">
+                        <span className={`px-2.5 py-1 rounded-md text-xs font-black ${
+                          available <= 0
+                            ? 'bg-rose-100 text-rose-800'
+                            : isLowStock
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {available} units
+                        </span>
+                      </td>
+                      {canViewInventory && (
+                        <td className="p-4 text-center font-bold text-gray-800">
+                          {onHand}
+                        </td>
+                      )}
                       {canViewInventory && (
                         <td className="p-4 text-center">
-                          <span className={`font-bold ${isLowStock ? 'text-amber-600' : 'text-gray-900'}`}>
-                            {product.stock}
+                          <span className="font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-xs">
+                            {reserved}
                           </span>
                         </td>
                       )}
                       {canViewInventory && (
-                        <td className="p-4">
-                          {isLowStock ? (
-                            <span className="flex items-center space-x-1 text-xs text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-md w-fit">
-                              <WarningAmberIcon className="!w-4 !h-4" />
-                              <span>Low Stock</span>
-                            </span>
-                          ) : (
-                            <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded-md w-fit">Optimal</span>
-                          )}
+                        <td className="p-4 text-center text-gray-500 text-xs">
+                          {product.reorderLevel}
                         </td>
                       )}
+                      <td className="p-4 text-center">
+                        {isLowStock ? (
+                          <span className="inline-flex items-center space-x-1 text-xs text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100">
+                            <WarningAmberIcon className="!w-4 !h-4 text-rose-600" />
+                            <span>Low Stock</span>
+                          </span>
+                        ) : (
+                          <span className="text-xs text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">Optimal</span>
+                        )}
+                      </td>
                       {(canEditProductCatalog || canEditInventory) && (
                         <td className="p-4 flex items-center justify-center space-x-2">
                           <button

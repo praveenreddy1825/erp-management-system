@@ -43,10 +43,10 @@ const Invoices = () => {
       const currentInvoices = invRes.data.invoices || [];
       setInvoices(currentInvoices);
 
-      // Find Sales Orders that do NOT yet have an invoice and are not cancelled
+      // Find Sales Orders that do NOT yet have an invoice and are fulfilled or delivered
       const existingSoIds = currentInvoices.map((inv) => (inv.salesOrder?._id || inv.salesOrder));
       const uninvoicedOrders = (soRes.data.orders || []).filter(
-        (so) => so.status !== 'Cancelled' && !existingSoIds.includes(so._id)
+        (so) => ['Fulfilled', 'Delivered'].includes(so.status) && !existingSoIds.includes(so._id)
       );
       setSalesOrders(uninvoicedOrders);
     } catch (error) {
@@ -62,7 +62,7 @@ const Invoices = () => {
   // Submit Invoice Creation
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!salesOrderId) return alert('Please select a sales order.');
+    if (!salesOrderId) return alert('Please select a fulfilled sales order.');
 
     const payload = {
       salesOrder: salesOrderId,
@@ -82,24 +82,28 @@ const Invoices = () => {
     }
   };
 
-  // Mark Linked Sales Order as Paid from Invoice
-  const handleMarkPaid = async (soId) => {
-    if (!soId) return;
+  // Record Full Customer Payment against Invoice
+  const handleMarkPaid = async (invoice) => {
+    if (!invoice?._id) return;
     try {
       setActionLoading(true);
-      await axios.put(`http://127.0.0.1:9999/api/sales-orders/${soId}/status`, {
-        paymentStatus: 'Paid',
+      await axios.post(`http://127.0.0.1:9999/api/invoices/${invoice._id}/payments`, {
+        amount: invoice.totalAmount || invoice.salesOrder?.TotalAmount,
+        paymentMethod: 'Bank Transfer',
+        reference: `PAY-${Date.now().toString().slice(-6)}`,
       });
-      showToast('Invoice & Sales Order recorded as Paid!');
+      showToast('Full customer payment recorded and verified!');
       await fetchData();
-      if (selectedInvoice && (selectedInvoice.salesOrder?._id === soId || selectedInvoice.salesOrder === soId)) {
+      if (selectedInvoice && selectedInvoice._id === invoice._id) {
         setSelectedInvoice((prev) => ({
           ...prev,
-          salesOrder: { ...prev.salesOrder, paymentStatus: 'Paid' },
+          paymentStatus: 'Paid',
+          paidAmount: invoice.totalAmount,
+          salesOrder: prev.salesOrder ? { ...prev.salesOrder, paymentStatus: 'Paid' } : null,
         }));
       }
     } catch (error) {
-      alert(error.response?.data?.message || 'Error updating payment status');
+      alert(error.response?.data?.message || 'Error recording payment');
     } finally {
       setActionLoading(false);
     }
@@ -318,11 +322,13 @@ const Invoices = () => {
                 </tr>
               ) : (
                 filteredInvoices.map((inv) => {
-                  const payment = inv.salesOrder?.paymentStatus || 'unpaid';
+                  const payment = inv.paymentStatus || inv.salesOrder?.paymentStatus || 'Unpaid';
+                  const grandTotal = typeof inv.totalAmount === 'number' ? inv.totalAmount : (inv.salesOrder?.TotalAmount || 0);
+
                   return (
                     <tr key={inv._id} className="hover:bg-amber-50/30 transition-colors">
                       <td className="p-4 font-bold text-gray-900 font-mono text-xs">{inv.invoiceNumber}</td>
-                      <td className="p-4 font-semibold text-gray-900">{inv.salesOrder?.customer?.name || '—'}</td>
+                      <td className="p-4 font-semibold text-gray-900">{inv.salesOrder?.customer?.name || inv.customer?.name || '—'}</td>
                       <td className="p-4 font-mono text-gray-500 text-xs">
                         #{inv.salesOrder?._id?.substring(inv.salesOrder?._id?.length - 8) || '—'}
                       </td>
@@ -342,19 +348,19 @@ const Invoices = () => {
                           >
                             {payment === 'Paid' ? '✓ Paid' : payment === 'partial' ? '⏳ Partial' : '✕ Unpaid'}
                           </span>
-                          {canWrite && payment !== 'Paid' && inv.salesOrder?._id && (
+                          {canWrite && payment !== 'Paid' && (
                             <button
                               disabled={actionLoading}
-                              onClick={() => handleMarkPaid(inv.salesOrder._id)}
+                              onClick={() => handleMarkPaid(inv)}
                               className="px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-[10px] font-bold rounded cursor-pointer transition-all border border-emerald-300"
-                              title="Mark as Paid"
+                              title="Record Full Customer Payment"
                             >
                               💳 Mark Paid
                             </button>
                           )}
                         </div>
                       </td>
-                      <td className="p-4 text-right font-black text-gray-900">${inv.salesOrder?.TotalAmount?.toFixed(2)}</td>
+                      <td className="p-4 text-right font-black text-gray-900">${grandTotal.toFixed(2)}</td>
                       <td className="p-4">
                         <div className="flex items-center justify-center space-x-2">
                           <button
@@ -478,14 +484,14 @@ const Invoices = () => {
               <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-200 flex items-center justify-between text-xs">
                 <div>
                   <span className="font-bold text-gray-700 block">Payment Status:</span>
-                  <span className="text-gray-500">{selectedInvoice.salesOrder?.paymentStatus || 'unpaid'}</span>
+                  <span className="text-gray-500 font-semibold">{selectedInvoice.paymentStatus || selectedInvoice.salesOrder?.paymentStatus || 'Unpaid'}</span>
                 </div>
-                {canWrite && selectedInvoice.salesOrder?.paymentStatus !== 'Paid' && selectedInvoice.salesOrder?._id && (
+                {canWrite && (selectedInvoice.paymentStatus !== 'Paid' && selectedInvoice.salesOrder?.paymentStatus !== 'Paid') && (
                   <button
-                    onClick={() => handleMarkPaid(selectedInvoice.salesOrder._id)}
+                    onClick={() => handleMarkPaid(selectedInvoice)}
                     className="px-3 py-1 bg-emerald-600 text-white font-bold rounded cursor-pointer hover:bg-emerald-700"
                   >
-                    💳 Mark as Paid
+                    💳 Record Full Payment
                   </button>
                 )}
               </div>

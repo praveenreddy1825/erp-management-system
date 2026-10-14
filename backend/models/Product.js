@@ -21,23 +21,49 @@ const productSchema = new mongoose.Schema(
     },
     price: {
       type: Number,
-      required: [true, 'Please enter a product price'],
-      min: [0, 'Enter Valid price'],
+      required: [true, 'Please enter a product selling price'],
+      min: [0, 'Enter valid price'],
+    },
+    costPrice: {
+      type: Number,
+      default: 0,
+      min: [0, 'Enter valid cost price'],
     },
     description: {
       type: String,
       required: false,
     },
+    // Physically accepted inventory present in warehouse
+    onHand: {
+      type: Number,
+      required: true,
+      min: [0, 'On-hand stock cannot be negative'],
+      default: 0,
+    },
+    // Stock allocated to active unfulfilled customer sales orders
+    reserved: {
+      type: Number,
+      required: true,
+      min: [0, 'Reserved stock cannot be negative'],
+      default: 0,
+    },
+    // Available stock that can be ordered: available = onHand - reserved
+    available: {
+      type: Number,
+      required: true,
+      min: [0, 'Available stock cannot be negative'],
+      default: 0,
+    },
+    // Retained for backward compatibility with existing views, synced with onHand
     stock: {
       type: Number,
-      required: [true, 'Please enter a product quantity'],
-      min: [0, 'Enter Valid stock'],
-      default: 1,
+      min: [0, 'Enter valid stock'],
+      default: 0,
     },
     reorderLevel: {
       type: Number,
       required: [true, 'Please add reorder level'],
-      min: [1, 'Reorder Level should be atleast 1'],
+      min: [1, 'Reorder Level should be at least 1'],
       default: 10,
     },
   },
@@ -46,8 +72,36 @@ const productSchema = new mongoose.Schema(
   }
 );
 
+// Invariant calculation: available = onHand - reserved; stock = onHand
+productSchema.pre('validate', function () {
+  if (this.isNew) {
+    if (this.onHand === undefined || (this.onHand === 0 && typeof this.stock === 'number' && this.stock > 0)) {
+      this.onHand = this.stock;
+    }
+  }
+  if (this.onHand === undefined) {
+    this.onHand = typeof this.stock === 'number' ? this.stock : 0;
+  }
+  if (this.reserved === undefined) {
+    this.reserved = 0;
+  }
+  if (this.onHand < 0) this.onHand = 0;
+  if (this.reserved < 0) this.reserved = 0;
+
+  this.available = Math.max(0, this.onHand - this.reserved);
+  this.stock = this.onHand;
+});
+
+// Reservation boundary guard
+productSchema.path('reserved').validate(function (value) {
+  if (this.onHand === undefined) return true;
+  return value <= this.onHand;
+}, 'Reserved stock cannot exceed on-hand stock');
+
 // Performance & Query Indexes
 productSchema.index({ category: 1 });
+productSchema.index({ available: 1, reorderLevel: 1 });
+productSchema.index({ onHand: 1, reserved: 1 });
 productSchema.index({ stock: 1, reorderLevel: 1 });
 productSchema.index({ name: 'text', description: 'text' });
 

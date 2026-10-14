@@ -3,6 +3,7 @@ import GRN from '../models/GRN.js';
 import PurchaseOrder from '../models/PurchaseOrder.js';
 import Product from '../models/Product.js';
 import { runTransaction } from '../utils/transactionHelper.js';
+import { recordGoodsReceipt } from '../utils/inventoryHelper.js';
 
 // @desc    Create a new Goods Receipt Note (GRN) & atomically update inventory stock
 // @route   POST /api/grns
@@ -158,14 +159,18 @@ export const createGRN = async (req, res) => {
       );
       createdGrnId = newGrn._id;
 
-      // Step B: Atomically increment warehouse product stock ONLY for ACCEPTED quantities
+      // Step B: Atomically increment warehouse product onHand/available stock ONLY for ACCEPTED quantities & record ledger entry
       for (const item of sanitizedReceivedItems) {
         if (item.acceptedQuantity > 0) {
-          await Product.findByIdAndUpdate(
-            item.product,
-            { $inc: { stock: item.acceptedQuantity } },
-            opts
-          );
+          await recordGoodsReceipt({
+            productId: item.product,
+            acceptedQuantity: item.acceptedQuantity,
+            sourceDocument: `GRN #${newGrn._id.toString().substring(newGrn._id.toString().length - 8).toUpperCase()}`,
+            sourceDocumentId: newGrn._id,
+            actor: req.user._id,
+            reason: remarks?.trim() || `Goods receipt verification for PO ${po.poNumber || po._id}`,
+            session: opts.session || null,
+          });
         }
       }
 

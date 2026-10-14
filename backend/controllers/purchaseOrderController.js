@@ -5,10 +5,11 @@ import GRN from '../models/GRN.js';
 
 // Enterprise State Machine for Purchase Orders
 export const VALID_PO_TRANSITIONS = {
-  Pending: ['Confirmed', 'Cancelled'],
+  Pending: ['Confirmed', 'Rejected', 'Cancelled'],
   Confirmed: ['Processing', 'Cancelled'],
   Processing: ['Shipped', 'Cancelled'],
   Shipped: ['Cancelled'], // Delivered & Partially_Received are reached via GRN
+  Rejected: [],           // Terminal state with rejection reason
   Partially_Received: [], // Only reached/advanced via GRN
   Delivered: [],          // Terminal state
   Cancelled: [],          // Terminal state
@@ -152,16 +153,22 @@ export const getPurchaseOrders = async (req, res) => {
 
     const filter = {};
 
+    // Scope PO visibility if user is a Supplier
+    if (req.user && req.user.role === 'Supplier') {
+      if (!req.user.supplierProfile) {
+        return res.status(403).json({ message: 'No linked supplier profile found for this account' });
+      }
+      filter.supplier = req.user.supplierProfile;
+    } else if (req.query.supplier) {
+      filter.supplier = req.query.supplier;
+    }
+
     if (req.query.status) {
       filter.status = req.query.status;
     }
 
     if (req.query.paymentStatus) {
       filter.paymentStatus = req.query.paymentStatus;
-    }
-
-    if (req.query.supplier) {
-      filter.supplier = req.query.supplier;
     }
 
     // Search by poNumber or supplier name
@@ -212,6 +219,15 @@ export const getPurchaseOrderById = async (req, res) => {
 
     if (!order) {
       return res.status(404).json({ message: 'Purchase Order not found' });
+    }
+
+    // Verify supplier ownership
+    if (req.user && req.user.role === 'Supplier') {
+      const orderSupplierId = (order.supplier?._id || order.supplier).toString();
+      const userSupplierId = (req.user.supplierProfile?._id || req.user.supplierProfile || '').toString();
+      if (orderSupplierId !== userSupplierId) {
+        return res.status(403).json({ message: 'Access denied: You can only view your own purchase orders' });
+      }
     }
 
     // Fetch related GRNs for this PO to compute remaining vs received balance
@@ -281,6 +297,29 @@ export const updatePurchaseOrderStatus = async (req, res) => {
       });
     }
 
+    // Supplier role transition guard
+    if (req.user && req.user.role === 'Supplier') {
+      const orderSupplierId = (order.supplier?._id || order.supplier).toString();
+      const userSupplierId = (req.user.supplierProfile?._id || req.user.supplierProfile || '').toString();
+      if (orderSupplierId !== userSupplierId) {
+        return res.status(403).json({ message: 'Access denied: You can only update your own purchase orders' });
+      }
+
+      const allowedSupplierActions = ['Confirmed', 'Rejected', 'Processing', 'Shipped'];
+      if (!allowedSupplierActions.includes(status)) {
+        return res.status(403).json({
+          message: 'Suppliers are only authorized to Confirm, Reject, Process, or Ship purchase orders',
+        });
+      }
+
+      if (status === 'Rejected') {
+        const rejectionReason = notes || req.body.rejectionReason;
+        if (!rejectionReason || !rejectionReason.trim()) {
+          return res.status(400).json({ message: 'A mandatory rejection reason is required to reject a purchase order' });
+        }
+      }
+    }
+
     // State machine validation
     if (status && status !== order.status) {
       const allowedNextStates = VALID_PO_TRANSITIONS[order.status] || [];
@@ -308,7 +347,7 @@ export const updatePurchaseOrderStatus = async (req, res) => {
         toStatus: status,
         changedBy: req.user._id,
         changedAt: new Date(),
-        notes: notes || `Order transitioned to ${status}`,
+        notes: notes || req.body.rejectionReason || `Order transitioned to ${status}`,
       });
 
       order.status = status;
@@ -350,40 +389,39 @@ export const recordPurchaseOrderPayment = async (req, res) => {
       return res.status(400).json({ message: 'Cannot record payments against a cancelled Purchase Order' });
     }
 
+    // Master Prompt Section 9: Supplier payment permitted ONLY after PO is fully received and GRN verified
+    if (order.status !== 'Delivered') {
+      return res.status(400).json({
+        message: 'Supplier payment is permitted only after the Purchase Order is fully received (Delivered) and verified via Goods Receipt Note (GRN)',
+      });
+    }
+
+    if (order.paymentStatus === 'Paid') {
+      return res.status(400).json({ message: 'Purchase Order has already been paid in full' });
+    }
+
     const payAmount = parseFloat(amount);
     if (isNaN(payAmount) || payAmount <= 0) {
       return res.status(400).json({ message: 'Payment amount must be a positive number greater than 0' });
     }
 
-    const currentPaid = order.paidAmount || 0;
-    const outstanding = Math.max(0, order.TotalAmount - currentPaid);
-
-    // Prevent accidental overpayment
-    if (payAmount > outstanding + 0.001) {
+    // Master Prompt Section 9: Full payments only; partial supplier payments are not supported
+    if (Math.abs(payAmount - order.TotalAmount) > 0.01) {
       return res.status(400).json({
-        message: `Payment amount ($${payAmount.toFixed(2)}) exceeds remaining outstanding balance ($${outstanding.toFixed(2)})`,
+        message: `Payments are full payments only. Payment amount ($${payAmount.toFixed(2)}) must equal total order payable amount ($${order.TotalAmount.toFixed(2)})`,
       });
     }
 
-    const newPaidTotal = currentPaid + payAmount;
-    order.paidAmount = newPaidTotal;
-
-    // Determine new payment status based on financial balance
-    if (newPaidTotal >= order.TotalAmount - 0.001) {
-      order.paymentStatus = 'Paid';
-    } else if (newPaidTotal > 0) {
-      order.paymentStatus = 'partial';
-    } else {
-      order.paymentStatus = 'unpaid';
-    }
+    order.paidAmount = order.TotalAmount;
+    order.paymentStatus = 'Paid';
 
     order.payments.push({
-      amount: payAmount,
+      amount: order.TotalAmount,
       paidDate: new Date(),
       paymentMethod: paymentMethod || 'Bank Transfer',
       reference: reference?.trim(),
       recordedBy: req.user._id,
-      notes: notes?.trim(),
+      notes: notes?.trim() || 'Full supplier purchase payment disbursement',
     });
 
     await order.save();

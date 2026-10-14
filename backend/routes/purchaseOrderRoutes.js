@@ -13,15 +13,15 @@ const router = express.Router();
 router
   .route('/')
   .post(protect, authorizeRoles('Admin', 'Purchase_Manager'), createPurchaseOrder)
-  .get(protect, authorizeRoles('Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'), getPurchaseOrders);
+  .get(protect, authorizeRoles('Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Supplier'), getPurchaseOrders);
 
 router
   .route('/:id')
-  .get(protect, authorizeRoles('Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'), getPurchaseOrderById);
+  .get(protect, authorizeRoles('Admin', 'Sales_Manager', 'Purchase_Manager', 'Inventory_Manager', 'Supplier'), getPurchaseOrderById);
 
 router
   .route('/:id/status')
-  .put(protect, authorizeRoles('Admin', 'Purchase_Manager'), updatePurchaseOrderStatus);
+  .put(protect, authorizeRoles('Admin', 'Purchase_Manager', 'Supplier'), updatePurchaseOrderStatus);
 
 router
   .route('/:id/payments')
