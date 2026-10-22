@@ -2,7 +2,6 @@ import { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext.jsx';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
@@ -30,8 +29,6 @@ const PurchaseOrders = () => {
   const [selectedOrderDetail, setSelectedOrderDetail] = useState(null);
 
   // Workflow Dialogs
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [isShipModalOpen, setIsShipModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isGrnModalOpen, setIsGrnModalOpen] = useState(false);
   const [targetOrder, setTargetOrder] = useState(null);
@@ -42,8 +39,6 @@ const PurchaseOrders = () => {
   const [rejectionReason, setRejectionReason] = useState('');
 
   // Workflow Dialog Form Fields
-  const [confirmData, setConfirmData] = useState({ expectedDeliveryDate: '', notes: '' });
-  const [shipData, setShipData] = useState({ carrier: '', trackingNumber: '', notes: '' });
   const [paymentData, setPaymentData] = useState({
     amount: '',
     paymentMethod: 'Bank Transfer',
@@ -178,36 +173,6 @@ const PurchaseOrders = () => {
     }
   };
 
-  // 1. Confirm Acceptance Action
-  const handleOpenConfirm = (order) => {
-    setTargetOrder(order);
-    setConfirmData({
-      expectedDeliveryDate: order.expectedDeliveryDate ? order.expectedDeliveryDate.slice(0, 10) : '',
-      notes: 'Vendor confirmed order via communication',
-    });
-    setIsConfirmModalOpen(true);
-  };
-
-  const handleConfirmSubmit = async (e) => {
-    e.preventDefault();
-    if (!targetOrder) return;
-    try {
-      setActionLoading(true);
-      await axios.put(`http://127.0.0.1:9999/api/purchase-orders/${targetOrder._id}/status`, {
-        status: 'Confirmed',
-        notes: confirmData.notes,
-        expectedDeliveryDate: confirmData.expectedDeliveryDate || undefined,
-      });
-      setIsConfirmModalOpen(false);
-      showToast(`PO ${targetOrder.poNumber} confirmed by vendor!`);
-      fetchData();
-    } catch (error) {
-      alert(error.response?.data?.message || 'Failed to confirm order');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   // Supplier Direct Accept & Reject Handlers
   const handleAcceptOrder = async (order) => {
     try {
@@ -251,55 +216,6 @@ const PurchaseOrders = () => {
     }
   };
 
-  // 2. Advance to Processing
-  const handleAdvanceToProcessing = async (order) => {
-    try {
-      setActionLoading(true);
-      await axios.put(`http://127.0.0.1:9999/api/purchase-orders/${order._id}/status`, {
-        status: 'Processing',
-        notes: 'Vendor preparing and packaging goods',
-      });
-      showToast(`PO ${order.poNumber} transitioned to Processing`);
-      fetchData();
-    } catch (error) {
-      alert(error.response?.data?.message || 'Failed to update status');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // 3. Mark Shipped Action
-  const handleOpenShip = (order) => {
-    setTargetOrder(order);
-    setShipData({
-      carrier: order.carrier || '',
-      trackingNumber: order.trackingNumber || '',
-      notes: 'Dispatched by vendor carrier',
-    });
-    setIsShipModalOpen(true);
-  };
-
-  const handleShipSubmit = async (e) => {
-    e.preventDefault();
-    if (!targetOrder) return;
-    try {
-      setActionLoading(true);
-      await axios.put(`http://127.0.0.1:9999/api/purchase-orders/${targetOrder._id}/status`, {
-        status: 'Shipped',
-        carrier: shipData.carrier,
-        trackingNumber: shipData.trackingNumber,
-        notes: shipData.notes,
-      });
-      setIsShipModalOpen(false);
-      showToast(`PO ${targetOrder.poNumber} marked as Shipped!`);
-      fetchData();
-    } catch (error) {
-      alert(error.response?.data?.message || 'Failed to update shipping details');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   // 4. Cancel Order
   const handleCancelOrder = async (order) => {
     const reason = prompt('Please enter a cancellation reason:');
@@ -326,7 +242,7 @@ const PurchaseOrders = () => {
     setPaymentData({
       amount: outstanding > 0 ? outstanding.toFixed(2) : (order.TotalAmount || 0).toFixed(2),
       paymentMethod: 'Bank Transfer',
-      reference: `DISB-${Date.now().toString().slice(-6)}`,
+      reference: `DISB-${order._id.slice(-6).toUpperCase()}`,
       notes: 'Full payment disbursement to supplier vendor upon delivery verification',
     });
     setIsPaymentModalOpen(true);
@@ -376,7 +292,7 @@ const PurchaseOrders = () => {
         remarks: `Dock goods receipt for ${order.poNumber || order._id}`,
       });
       setIsGrnModalOpen(true);
-    } catch (error) {
+    } catch {
       alert('Failed to load order intake summary');
     }
   };
@@ -434,7 +350,7 @@ const PurchaseOrders = () => {
       const res = await axios.get(`http://127.0.0.1:9999/api/purchase-orders/${order._id}`);
       setSelectedOrderDetail(res.data);
       setIsDetailModalOpen(true);
-    } catch (error) {
+    } catch {
       alert('Error fetching order details');
     }
   };
@@ -657,8 +573,6 @@ const PurchaseOrders = () => {
                     Cancelled: 'bg-rose-50 text-rose-800 border-rose-200',
                   };
 
-                  const outstanding = Math.max(0, order.TotalAmount - (order.paidAmount || 0));
-
                   return (
                     <tr key={order._id} className="hover:bg-amber-50/30 transition-colors">
                       {/* PO Number */}
@@ -820,140 +734,7 @@ const PurchaseOrders = () => {
         </div>
       </div>
 
-      {/* 1. Modal: Record Vendor Confirmation */}
-      {isConfirmModalOpen && targetOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-2xl border border-gray-150 max-w-md w-full overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-blue-50/60">
-              <div>
-                <h2 className="text-base font-bold text-blue-900">Record Vendor Confirmation</h2>
-                <p className="text-xs text-blue-700">Order: {targetOrder.poNumber}</p>
-              </div>
-              <button onClick={() => setIsConfirmModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl cursor-pointer">✕</button>
-            </div>
-
-            <form onSubmit={handleConfirmSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">
-                  Expected Delivery Date
-                </label>
-                <input
-                  type="date"
-                  value={confirmData.expectedDeliveryDate}
-                  onChange={(e) => setConfirmData({ ...confirmData, expectedDeliveryDate: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">
-                  Confirmation Notes / Vendor Reference
-                </label>
-                <textarea
-                  required
-                  value={confirmData.notes}
-                  onChange={(e) => setConfirmData({ ...confirmData, notes: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 h-20 resize-none"
-                  placeholder="E.g., Confirmed by vendor account manager via email; delivery scheduled for dock #2"
-                />
-              </div>
-
-              <div className="border-t border-gray-100 pt-4 flex items-center justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setIsConfirmModalOpen(false)}
-                  className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm shadow-sm cursor-pointer"
-                >
-                  Confirm Order
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 2. Modal: Record Vendor Shipment */}
-      {isShipModalOpen && targetOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-2xl border border-gray-150 max-w-md w-full overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-purple-50/60">
-              <div>
-                <h2 className="text-base font-bold text-purple-900">Record Carrier Shipment</h2>
-                <p className="text-xs text-purple-700">Order: {targetOrder.poNumber}</p>
-              </div>
-              <button onClick={() => setIsShipModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl cursor-pointer">✕</button>
-            </div>
-
-            <form onSubmit={handleShipSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">
-                  Carrier / Transport Company
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={shipData.carrier}
-                  onChange={(e) => setShipData({ ...shipData, carrier: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                  placeholder="E.g., Blue Dart Freight, TCI Express"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">
-                  Tracking / Consignment Number
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={shipData.trackingNumber}
-                  onChange={(e) => setShipData({ ...shipData, trackingNumber: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                  placeholder="E.g., TRK-998822-IN"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">
-                  Dispatch Notes
-                </label>
-                <textarea
-                  value={shipData.notes}
-                  onChange={(e) => setShipData({ ...shipData, notes: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 h-16 resize-none"
-                  placeholder="E.g., 2 refrigerated pallets on container truck #DL-01-A-489"
-                />
-              </div>
-
-              <div className="border-t border-gray-100 pt-4 flex items-center justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setIsShipModalOpen(false)}
-                  className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-sm shadow-sm cursor-pointer"
-                >
-                  Mark as Shipped
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 3. Modal: Record Vendor Payment */}
+      {/* Modal: Record Vendor Payment */}
       {isPaymentModalOpen && targetOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
           <div className="bg-white rounded-xl shadow-2xl border border-gray-150 max-w-md w-full overflow-hidden flex flex-col">
@@ -1288,10 +1069,8 @@ const PurchaseOrders = () => {
               <div>
                 <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Order Line Items</label>
                 <div className="space-y-2">
-                  {items.map((item, index) => {
-                    const selectedProductObj = products.find((p) => p._id === item.product);
-                    return (
-                      <div key={index} className="flex items-center space-x-2">
+                  {items.map((item, index) => (
+                    <div key={index} className="flex items-center space-x-2">
                         <select
                           required
                           value={item.product}
@@ -1332,8 +1111,7 @@ const PurchaseOrders = () => {
                           ✕
                         </button>
                       </div>
-                    );
-                  })}
+                  ))}
                 </div>
                 <button
                   type="button"

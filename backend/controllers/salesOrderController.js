@@ -1,9 +1,11 @@
 import mongoose from 'mongoose';
 import SalesOrder from '../models/SalesOrder.js';
+import Invoice from '../models/Invoice.js';
 import Product from '../models/Product.js';
 import Customer from '../models/Customer.js';
 import Contact from '../models/Contact.js';
-import User from '../models/User.js';
+import Cart from '../models/Cart.js';
+import Idempotency from '../models/Idempotency.js';
 import { runTransaction } from '../utils/transactionHelper.js';
 import {
   reserveStockForOrder,
@@ -11,7 +13,7 @@ import {
   fulfillOrderStock,
 } from '../utils/inventoryHelper.js';
 
-// Streamlined State Machine for Sales Orders (Pending -> Processing -> Delivered)
+// Streamlined State Machine for Sales Orders
 export const VALID_STATUS_TRANSITIONS = {
   Pending: ['Confirmed', 'Processing', 'Delivered', 'Cancelled', 'Rejected'],
   Confirmed: ['Processing', 'Delivered', 'Cancelled', 'Rejected'],
@@ -23,27 +25,68 @@ export const VALID_STATUS_TRANSITIONS = {
   Rejected: [],   // Terminal status
 };
 
-// Unique SO Number Generator
+// Unique SO Number Generator with higher entropy
 const generateUniqueSONumber = async () => {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  for (let i = 0; i < 10; i++) {
-    const rand = Math.floor(1000 + Math.random() * 9000);
+  for (let i = 0; i < 15; i++) {
+    const rand = Math.floor(100000 + Math.random() * 900000);
     const candidate = `SO-${dateStr}-${rand}`;
     const exists = await SalesOrder.findOne({ soNumber: candidate });
     if (!exists) return candidate;
   }
-  return `SO-${dateStr}-${Date.now().toString().slice(-4)}`;
+  return `SO-${dateStr}-${Date.now().toString().slice(-6)}`;
 };
 
-// @desc    Create a new Customer Sales Order & Reserve Stock Atomically
+// @desc    Create a new Customer Sales Order & Reserve Stock Atomically with Idempotency
 // @route   POST /api/sales-orders
 // @access  Private (Admin, Sales_Manager, Customer)
 export const createSalesOrder = async (req, res) => {
-  try {
-    const { customer, products, items, remarks, paymentStatus } = req.body;
-    const productsList = products || items;
+  const idempotencyKey = (req.headers['idempotency-key'] || req.body.idempotencyKey)?.toString()?.trim();
+  let idempotencyRecord = null;
 
-    // 1. Validate customer existence & ownership (auto-resolves for Customer role)
+  try {
+    // 1. Durable Idempotency Check
+    if (idempotencyKey) {
+      try {
+        idempotencyRecord = await Idempotency.create({
+          key: idempotencyKey,
+          user: req.user._id,
+          endpoint: 'POST /api/sales-orders',
+          status: 'IN_PROGRESS',
+        });
+      } catch (idempErr) {
+        if (idempErr.code === 11000) {
+          // Duplicate key: an identical idempotency key is already stored
+          for (let attempt = 0; attempt < 30; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const existing = await Idempotency.findOne({ key: idempotencyKey, user: req.user._id });
+            if (existing && existing.status === 'COMPLETED') {
+              return res.status(existing.responseCode || 201).json(existing.responseBody);
+            }
+            if (existing && existing.status === 'FAILED') {
+              return res.status(existing.responseCode || 400).json(
+                existing.responseBody || { message: 'Previous checkout attempt failed' }
+              );
+            }
+          }
+          return res.status(409).json({ message: 'A checkout request with this idempotency key is already in progress' });
+        }
+        throw idempErr;
+      }
+    }
+
+    const { customer, products, items, remarks, paymentStatus } = req.body;
+    let productsList = products || items;
+
+    // If no items provided in body, check if customer has a backend cart with items
+    if ((!productsList || productsList.length === 0) && req.user.role === 'Customer') {
+      const activeCart = await Cart.findOne({ user: req.user._id });
+      if (activeCart && activeCart.items && activeCart.items.length > 0) {
+        productsList = activeCart.items;
+      }
+    }
+
+    // 2. Validate customer existence & ownership (auto-resolves for Customer role)
     let customerDoc = null;
     if (req.user && req.user.role === 'Customer') {
       let contact = await Contact.findOne({ email: req.user.email.toLowerCase().trim() });
@@ -55,7 +98,7 @@ export const createSalesOrder = async (req, res) => {
           contact = await Contact.create({
             email: req.user.email.toLowerCase().trim(),
             phone_number: req.user.phone_number || '+910000000000',
-            address: { street: 'Customer Delivery Address' },
+            address: { street: 'No details' },
           });
         }
         customerDoc = await Customer.create({
@@ -68,90 +111,149 @@ export const createSalesOrder = async (req, res) => {
     }
 
     if (!customerDoc) {
-      return res.status(400).json({ message: 'Customer ID or authenticated customer profile is required' });
+      const errMsg = 'Customer ID or authenticated customer profile is required';
+      if (idempotencyRecord) {
+        await Idempotency.findByIdAndUpdate(idempotencyRecord._id, { status: 'FAILED', responseCode: 400, responseBody: { message: errMsg } });
+      }
+      return res.status(400).json({ message: errMsg });
     }
 
-    // 2. Validate line items
+    // 3. Validate line items
     if (!productsList || !Array.isArray(productsList) || productsList.length === 0) {
-      return res.status(400).json({ message: 'Sales Order must contain at least one product line item' });
+      const errMsg = 'Sales Order must contain at least one product line item';
+      if (idempotencyRecord) {
+        await Idempotency.findByIdAndUpdate(idempotencyRecord._id, { status: 'FAILED', responseCode: 400, responseBody: { message: errMsg } });
+      }
+      return res.status(400).json({ message: errMsg });
+    }
+
+    // Consolidate duplicate items in cart to prevent redundant line entries
+    const mergedMap = new Map();
+    for (const item of productsList) {
+      const rawProdId = item.product?._id || item.product;
+      if (!rawProdId) {
+        const errMsg = 'Each order item must specify a valid product ID';
+        if (idempotencyRecord) {
+          await Idempotency.findByIdAndUpdate(idempotencyRecord._id, { status: 'FAILED', responseCode: 400, responseBody: { message: errMsg } });
+        }
+        return res.status(400).json({ message: errMsg });
+      }
+      const prodIdStr = String(rawProdId);
+      const qty = parseInt(item.quantity, 10);
+      if (isNaN(qty) || qty <= 0) {
+        const errMsg = 'Product quantities must be positive integers greater than 0';
+        if (idempotencyRecord) {
+          await Idempotency.findByIdAndUpdate(idempotencyRecord._id, { status: 'FAILED', responseCode: 400, responseBody: { message: errMsg } });
+        }
+        return res.status(400).json({ message: errMsg });
+      }
+      if (qty > 1000) {
+        const errMsg = 'Quantity cannot exceed 1000 units per line item';
+        if (idempotencyRecord) {
+          await Idempotency.findByIdAndUpdate(idempotencyRecord._id, { status: 'FAILED', responseCode: 400, responseBody: { message: errMsg } });
+        }
+        return res.status(400).json({ message: errMsg });
+      }
+      mergedMap.set(prodIdStr, (mergedMap.get(prodIdStr) || 0) + qty);
     }
 
     const finalProducts = [];
     let calculatedTotal = 0;
 
-    for (const item of productsList) {
-      if (!item.product) {
-        return res.status(400).json({ message: 'Each order item must specify a valid product ID' });
-      }
-
-      const qty = parseInt(item.quantity, 10);
-      if (isNaN(qty) || qty <= 0) {
-        return res.status(400).json({ message: 'Product quantities must be positive integers greater than 0' });
-      }
-
-      const product = await Product.findById(item.product);
+    for (const [prodIdStr, totalQty] of mergedMap.entries()) {
+      const product = await Product.findById(prodIdStr);
       if (!product) {
-        return res.status(404).json({ message: `Product not found with ID ${item.product}` });
+        const errMsg = `Product not found with ID ${prodIdStr}`;
+        if (idempotencyRecord) {
+          await Idempotency.findByIdAndUpdate(idempotencyRecord._id, { status: 'FAILED', responseCode: 404, responseBody: { message: errMsg } });
+        }
+        return res.status(404).json({ message: errMsg });
       }
 
-      // Check available stock (invariant: available = onHand - reserved)
       const availableStock = typeof product.available === 'number' ? product.available : product.stock;
-      if (availableStock < qty) {
-        return res.status(400).json({
-          message: `Insufficient available stock for product "${product.name}". Available: ${availableStock}, Requested: ${qty}. Please wait for stock replenishment.`,
-        });
+      if (availableStock < totalQty) {
+        const errMsg = `Insufficient available stock for product "${product.name}". Available: ${availableStock}, Requested: ${totalQty}. Please wait for stock replenishment.`;
+        if (idempotencyRecord) {
+          await Idempotency.findByIdAndUpdate(idempotencyRecord._id, { status: 'FAILED', responseCode: 400, responseBody: { message: errMsg } });
+        }
+        return res.status(400).json({ message: errMsg });
       }
 
+      // Authoritative server-side price calculation
+      const authPrice = typeof product.price === 'number' ? product.price : 0;
       finalProducts.push({
         product: product._id,
-        quantity: qty,
-        price: product.price,
+        quantity: totalQty,
+        price: authPrice,
       });
-      calculatedTotal += qty * product.price;
+      calculatedTotal += totalQty * authPrice;
+    }
+
+    // Role-based payment status lockdown: Customers can never mark their own order as Paid at checkout
+    let finalPaymentStatus = 'unpaid';
+    if (req.user.role !== 'Customer' && paymentStatus) {
+      finalPaymentStatus = paymentStatus;
     }
 
     const soNumber = await generateUniqueSONumber();
+    const orderId = new mongoose.Types.ObjectId();
     let createdOrderId = null;
 
-    // 3. Atomically reserve stock & create Sales Order
+    // 4. Atomically reserve stock & create Sales Order
     await runTransaction(async (session) => {
       const createOpts = session ? { session } : {};
 
-      const [order] = await SalesOrder.create(
-        [
-          {
-            soNumber,
-            customer: customerDoc._id,
-            products: finalProducts,
-            TotalAmount: calculatedTotal,
-            status: 'Pending',
-            reservationStatus: 'Reserved',
-            paymentStatus: paymentStatus || 'unpaid',
-            remarks,
-            createdBy: req.user._id,
-            statusHistory: [
-              {
-                fromStatus: 'None',
-                toStatus: 'Pending',
-                changedBy: req.user._id,
-                changedAt: new Date(),
-                notes: 'Order placed by customer; stock allocated to reservation',
-              },
-            ],
-          },
-        ],
-        createOpts
-      );
-      createdOrderId = order._id;
-
-      // Reserve stock atomically and write to StockMovement ledger
+      // Step A: Reserve stock atomically with conditional updates & deadlock prevention
       await reserveStockForOrder({
         lineItems: finalProducts,
         sourceDocument: soNumber,
-        sourceDocumentId: order._id,
+        sourceDocumentId: orderId,
         actor: req.user._id,
         session,
       });
+
+      // Step B: Create SalesOrder document
+      try {
+        const [order] = await SalesOrder.create(
+          [
+            {
+              _id: orderId,
+              soNumber,
+              customer: customerDoc._id,
+              products: finalProducts,
+              TotalAmount: Number(calculatedTotal.toFixed(2)),
+              status: 'Pending',
+              reservationStatus: 'Reserved',
+              paymentStatus: finalPaymentStatus,
+              remarks,
+              createdBy: req.user._id,
+              statusHistory: [
+                {
+                  fromStatus: 'None',
+                  toStatus: 'Pending',
+                  changedBy: req.user._id,
+                  changedAt: new Date(),
+                  notes: 'Order placed by customer; stock allocated to reservation',
+                },
+              ],
+            },
+          ],
+          createOpts
+        );
+        createdOrderId = order._id;
+      } catch (orderCreateErr) {
+        // If order document creation fails and running on standalone MongoDB, release reservation immediately
+        if (!session) {
+          await releaseOrderReservation({
+            lineItems: finalProducts,
+            sourceDocument: soNumber,
+            sourceDocumentId: orderId,
+            actor: req.user._id,
+            reason: 'Rollback due to order creation failure',
+          });
+        }
+        throw orderCreateErr;
+      }
     });
 
     const populatedOrder = await SalesOrder.findById(createdOrderId)
@@ -159,10 +261,36 @@ export const createSalesOrder = async (req, res) => {
       .populate('products.product')
       .populate('createdBy', 'name email');
 
+    // 5. Post-Checkout Cart Cleanup: Clear authenticated customer's backend cart
+    if (req.user.role === 'Customer') {
+      try {
+        await Cart.findOneAndUpdate({ user: req.user._id }, { $set: { items: [] } });
+      } catch (cartClearErr) {
+        console.error('Failed to clear customer cart after order:', cartClearErr);
+      }
+    }
+
+    // 6. Record Completed Idempotency Record
+    if (idempotencyRecord) {
+      await Idempotency.findByIdAndUpdate(idempotencyRecord._id, {
+        status: 'COMPLETED',
+        responseCode: 201,
+        responseBody: populatedOrder,
+        orderId: createdOrderId,
+      });
+    }
+
     res.status(201).json(populatedOrder);
   } catch (error) {
+    if (idempotencyRecord) {
+      await Idempotency.findByIdAndUpdate(idempotencyRecord._id, {
+        status: 'FAILED',
+        responseCode: 400,
+        responseBody: { message: error.message },
+      });
+    }
     console.error('Error creating sales order:', error);
-    res.status(500).json({ message: error.message || 'Failed to create Sales Order' });
+    res.status(400).json({ message: error.message || 'Failed to create Sales Order' });
   }
 };
 
@@ -237,9 +365,16 @@ export const getSalesOrderById = async (req, res) => {
     }
 
     if (req.user.role === 'Customer') {
-      const contact = await Contact.findOne({ email: req.user.email });
-      const customer = await Customer.findOne({ contactInfo: contact?._id });
-      if (!customer || order.customer._id.toString() !== customer._id.toString()) {
+      const isCreator = order.createdBy?._id?.toString() === req.user._id.toString();
+      let isLinkedCustomer = false;
+      const contact = await Contact.findOne({ email: req.user.email.toLowerCase().trim() });
+      if (contact) {
+        const customer = await Customer.findOne({ contactInfo: contact._id });
+        if (customer && order.customer?._id?.toString() === customer._id.toString()) {
+          isLinkedCustomer = true;
+        }
+      }
+      if (!isCreator && !isLinkedCustomer) {
         return res.status(403).json({ message: 'Not authorized to view this Sales Order' });
       }
     }
@@ -250,7 +385,7 @@ export const getSalesOrderById = async (req, res) => {
   }
 };
 
-// @desc    Update Sales Order status with strict state machine and stock fulfillment
+// @desc    Update Sales Order status with strict state machine and atomic stock fulfillment
 // @route   PUT /api/sales-orders/:id/status
 // @access  Private (Admin, Sales_Manager, Customer for eligible cancellations)
 export const updateSalesOrderStatus = async (req, res) => {
@@ -262,16 +397,37 @@ export const updateSalesOrderStatus = async (req, res) => {
       return res.status(404).json({ message: 'Sales Order not found' });
     }
 
-    // Role-based cancellation check: Customers can only cancel while status is Pending
+    // Role-based authorization & ownership check for cancellations
     if (req.user.role === 'Customer') {
       if (status !== 'Cancelled') {
         return res.status(403).json({ message: 'Customers can only cancel pending orders' });
       }
+
+      // Check order ownership
+      const isCreator = order.createdBy?.toString() === req.user._id.toString();
+      let isLinkedCustomer = false;
+      const contact = await Contact.findOne({ email: req.user.email.toLowerCase().trim() });
+      if (contact) {
+        const customer = await Customer.findOne({ contactInfo: contact._id });
+        if (customer && order.customer?.toString() === customer._id.toString()) {
+          isLinkedCustomer = true;
+        }
+      }
+
+      if (!isCreator && !isLinkedCustomer) {
+        return res.status(403).json({ message: 'Forbidden: You are not authorized to cancel this order' });
+      }
+
       if (order.status !== 'Pending') {
         return res.status(400).json({
           message: `Orders in "${order.status}" status cannot be cancelled by customers. Contact sales support.`,
         });
       }
+    }
+
+    // Guard: Do not allow marking a cancelled or rejected order as Paid
+    if (paymentStatus === 'Paid' && ['Cancelled', 'Rejected'].includes(order.status)) {
+      return res.status(400).json({ message: 'Cannot mark a cancelled or rejected sales order as paid' });
     }
 
     // State machine validation
@@ -339,13 +495,48 @@ export const updateSalesOrderStatus = async (req, res) => {
         });
 
         order.status = status;
-        if (paymentStatus) order.paymentStatus = paymentStatus;
+        if (paymentStatus && !['Cancelled', 'Rejected'].includes(status)) {
+          order.paymentStatus = paymentStatus;
+        }
 
-        await order.save({ session });
+        await (session ? order.save({ session }) : order.save());
       });
     } else if (paymentStatus) {
+      if (['Cancelled', 'Rejected'].includes(order.status) && paymentStatus === 'Paid') {
+        return res.status(400).json({ message: 'Cannot mark a cancelled or rejected sales order as paid' });
+      }
       order.paymentStatus = paymentStatus;
       await order.save();
+    }
+
+    // Two-way synchronization: update linked invoice payment status if it exists
+    if (paymentStatus) {
+      if (paymentStatus === 'Paid') {
+        await Invoice.findOneAndUpdate(
+          { salesOrder: order._id, paymentStatus: 'Unpaid' },
+          {
+            $set: {
+              paymentStatus: 'Paid',
+              paidAmount: order.TotalAmount,
+              paidDate: new Date(),
+              paymentMethod: 'Direct Payment / Sales Order',
+              recordedBy: req.user._id,
+            },
+          }
+        );
+      } else if (paymentStatus.toLowerCase() === 'unpaid') {
+        await Invoice.findOneAndUpdate(
+          { salesOrder: order._id, paymentStatus: 'Paid' },
+          {
+            $set: {
+              paymentStatus: 'Unpaid',
+              paidAmount: 0,
+              paidDate: null,
+              paymentMethod: null,
+            },
+          }
+        );
+      }
     }
 
     const updated = await SalesOrder.findById(order._id)
@@ -356,7 +547,7 @@ export const updateSalesOrderStatus = async (req, res) => {
     res.status(200).json(updated);
   } catch (error) {
     console.error('Error updating sales order status:', error);
-    res.status(500).json({ message: error.message || 'Failed to update Sales Order status' });
+    res.status(400).json({ message: error.message || 'Failed to update Sales Order status' });
   }
 };
 

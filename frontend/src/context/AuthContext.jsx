@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect } from 'react';
+import { createContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
 export const AuthContext = createContext();
@@ -7,6 +7,12 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [loading, setLoading] = useState(true);
+
+  // Logout handler
+  const logout = () => {
+    setToken(null);
+    setUser(null);
+  };
 
   // Set Authorization header for Axios requests
   useEffect(() => {
@@ -28,7 +34,7 @@ export const AuthProvider = ({ children }) => {
           // Fetch current user details from our protected GET /api/auth/me route
           const res = await axios.get('http://127.0.0.1:9999/api/auth/me');
           setUser(res.data);
-        } catch (error) {
+        } catch {
           console.error('Session expired or token invalid');
           logout();
         }
@@ -84,12 +90,6 @@ export const AuthProvider = ({ children }) => {
         message: error.response?.data?.message || 'Registration failed.' 
       };
     }
-  };
-
-  // Logout handler
-  const logout = () => {
-    setToken(null);
-    setUser(null);
   };
 
   return (

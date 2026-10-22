@@ -37,7 +37,7 @@ export const registerUser=async(req,res)=>{
                 const contact = await Contact.create({
                     email,
                     phone_number,
-                    address: { street: 'Self-Registered Customer' }
+                    address: { street: 'No details' }
                 });
                 await Customer.create({
                     name,
@@ -124,7 +124,7 @@ export const createInternalUser = async (req, res) => {
       return res.status(400).json({ message: 'A user with this email address already exists' });
     }
 
-    const tempPassword = password || 'TempPass@2026';
+    const tempPassword = password || 'Welcome@123';
     const newUser = await User.create({
       name: name.trim(),
       email: normalizedEmail,
@@ -177,7 +177,7 @@ export const createSupplierAccount = async (req, res) => {
       return res.status(400).json({ message: 'An account with this email address already exists' });
     }
 
-    const tempPassword = password || 'SupplierPass@2026';
+    const tempPassword = password || 'Welcome@123';
     const supplierUser = await User.create({
       name: (name || supplier.name).trim(),
       email: normalizedEmail,
@@ -237,27 +237,230 @@ export const changePassword = async (req, res) => {
   }
 };
 
-// @desc    Get Sales Manager contact details for customer & partner support
-// @route   GET /api/auth/sales-contact
-// @access  Private (All authenticated users)
-export const getSalesContact = async (req, res) => {
+// @desc    Get role-specific support contact (Customer->SalesManager, Supplier->PurchaseManager, Managers->Admin, Admin->Hidden)
+// @route   GET /api/auth/support-contact
+// @access  Private (All authenticated roles)
+export const getSupportContact = async (req, res) => {
   try {
-    const salesManager = await User.findOne({ role: 'Sales_Manager' }).select('name email phone_number role');
-    if (salesManager) {
+    const userRole = req.user?.role;
+
+    if (userRole === 'Admin') {
+      return res.status(200).json({ hidden: true });
+    }
+
+    if (userRole === 'Customer') {
+      const salesManager = await User.findOne({ role: 'Sales_Manager' }).select('name email phone_number role');
       return res.status(200).json({
-        name: salesManager.name,
-        email: salesManager.email,
-        phone_number: salesManager.phone_number || '+91 92123 45678',
+        hidden: false,
+        title: 'Sales Contact',
+        name: salesManager?.name || 'Vikram Malhotra',
+        email: salesManager?.email || 'sales@erp.com',
+        phone_number: salesManager?.phone_number || '+91 92123 45678',
         role: 'Sales Manager',
       });
     }
-    return res.status(200).json({
-      name: 'Vikram Malhotra',
-      email: 'sales@erp.com',
-      phone_number: '+91 92123 45678',
-      role: 'Sales Manager',
+
+    if (userRole === 'Supplier') {
+      const purchaseManager = await User.findOne({ role: 'Purchase_Manager' }).select('name email phone_number role');
+      return res.status(200).json({
+        hidden: false,
+        title: 'Procurement Contact',
+        name: purchaseManager?.name || 'Priya Nair',
+        email: purchaseManager?.email || 'purchase@erp.com',
+        phone_number: purchaseManager?.phone_number || '+91 93123 45678',
+        role: 'Purchase Manager',
+      });
+    }
+
+    if (['Sales_Manager', 'Purchase_Manager', 'Inventory_Manager'].includes(userRole)) {
+      const admin = await User.findOne({ role: 'Admin' }).select('name email phone_number role');
+      return res.status(200).json({
+        hidden: false,
+        title: 'System Admin',
+        name: admin?.name || 'System Administrator',
+        email: admin?.email || 'admin@erp.com',
+        phone_number: admin?.phone_number || '+91 91123 45678',
+        role: 'System Administrator',
+      });
+    }
+
+    return res.status(200).json({ hidden: true });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to fetch support contact' });
+  }
+};
+
+// Legacy alias maintained for existing integrations
+export const getSalesContact = async (req, res) => {
+  return getSupportContact(req, res);
+};
+
+// @desc    Get detailed profile of currently authenticated user with linked contact info
+// @route   GET /api/auth/profile
+// @access  Private (All authenticated roles)
+export const getUserProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: 'User account not found' });
+    }
+
+    let address = { street: '', city: '', state: '', zip: '', country: '' };
+    let linkedBusiness = null;
+
+    if (user.role === 'Customer') {
+      const contact = await Contact.findOne({ email: user.email.toLowerCase().trim() });
+      if (contact && contact.address) {
+        address = {
+          street: contact.address.street === 'No details' ? '' : (contact.address.street || ''),
+          city: contact.address.city || '',
+          state: contact.address.state || '',
+          zip: contact.address.zip || '',
+          country: contact.address.country || '',
+        };
+      }
+    } else if (user.role === 'Supplier' && user.supplierProfile) {
+      const supplier = await Supplier.findById(user.supplierProfile).populate('contactInfo');
+      if (supplier) {
+        linkedBusiness = supplier.name;
+        if (supplier.contactInfo && supplier.contactInfo.address) {
+          address = {
+            street: supplier.contactInfo.address.street || '',
+            city: supplier.contactInfo.address.city || '',
+            state: supplier.contactInfo.address.state || '',
+            zip: supplier.contactInfo.address.zip || '',
+            country: supplier.contactInfo.address.country || '',
+          };
+        }
+      }
+    } else {
+      // Internal staff / Admin / Managers
+      const contact = await Contact.findOne({ email: user.email.toLowerCase().trim() });
+      if (contact && contact.address) {
+        address = {
+          street: contact.address.street || '',
+          city: contact.address.city || '',
+          state: contact.address.state || '',
+          zip: contact.address.zip || '',
+          country: contact.address.country || '',
+        };
+      }
+    }
+
+    res.status(200).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      phone_number: user.phone_number || '',
+      address,
+      linkedBusiness,
+      createdAt: user.createdAt,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message || 'Failed to fetch sales contact' });
+    res.status(500).json({ message: error.message || 'Failed to fetch user profile' });
+  }
+};
+
+// @desc    Update profile of currently authenticated user and synchronize linked contact details
+// @route   PUT /api/auth/profile
+// @access  Private (All authenticated roles)
+export const updateUserProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const { name, phone_number, address } = req.body;
+
+    if (name && name.trim()) {
+      user.name = name.trim();
+    }
+    if (phone_number && phone_number.trim()) {
+      user.phone_number = phone_number.trim();
+    }
+
+    await user.save();
+
+    const normalizedEmail = user.email.toLowerCase().trim();
+
+    // Format address payload
+    let formattedAddress = null;
+    if (address) {
+      if (typeof address === 'string') {
+        formattedAddress = { street: address.trim() };
+      } else if (typeof address === 'object') {
+        formattedAddress = {
+          street: (address.street || '').trim(),
+          city: (address.city || '').trim(),
+          state: (address.state || '').trim(),
+          zip: (address.zip || '').trim(),
+          country: (address.country || '').trim(),
+        };
+      }
+    }
+
+    // Synchronize linked Customer / Contact record
+    if (user.role === 'Customer') {
+      let contact = await Contact.findOne({ email: normalizedEmail });
+      if (!contact) {
+        contact = await Contact.create({
+          email: normalizedEmail,
+          phone_number: user.phone_number,
+          address: formattedAddress || { street: 'No details' },
+        });
+      } else {
+        contact.phone_number = user.phone_number;
+        if (formattedAddress) {
+          contact.address = formattedAddress;
+        }
+        await contact.save();
+      }
+
+      let customerDoc = await Customer.findOne({ contactInfo: contact._id });
+      if (!customerDoc) {
+        await Customer.create({
+          name: user.name,
+          contactInfo: contact._id,
+        });
+      } else {
+        customerDoc.name = user.name;
+        await customerDoc.save();
+      }
+    } else if (user.role === 'Supplier' && user.supplierProfile) {
+      // Synchronize linked Supplier contact
+      const supplier = await Supplier.findById(user.supplierProfile);
+      if (supplier && supplier.contactInfo) {
+        const contact = await Contact.findById(supplier.contactInfo);
+        if (contact) {
+          contact.phone_number = user.phone_number;
+          if (formattedAddress) {
+            contact.address = formattedAddress;
+          }
+          await contact.save();
+        }
+      }
+    } else {
+      // Synchronize Contact record for Managers/Admin if one exists
+      let contact = await Contact.findOne({ email: normalizedEmail });
+      if (contact) {
+        contact.phone_number = user.phone_number;
+        if (formattedAddress) contact.address = formattedAddress;
+        await contact.save();
+      }
+    }
+
+    res.status(200).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      phone_number: user.phone_number,
+      address: formattedAddress || { street: '' },
+      message: 'Profile updated successfully',
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to update profile' });
   }
 };

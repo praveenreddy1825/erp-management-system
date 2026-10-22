@@ -7,14 +7,26 @@ import {
   createSupplierAccount,
   changePassword,
   getSalesContact,
+  getSupportContact,
+  getUserProfile,
+  updateUserProfile,
 } from '../controllers/authController.js';
 import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Route: Get Sales Manager contact details (accessible to all authenticated users)
-// GET /api/auth/sales-contact
+// Route: Get role-specific support contact details (Customer->SalesManager, Supplier->PurchaseManager, Managers->Admin, Admin->hidden)
+// GET /api/auth/support-contact
+router.get('/support-contact', protect, getSupportContact);
+
+// Legacy route maintained for backward compatibility
 router.get('/sales-contact', protect, getSalesContact);
+
+// Route: Manage current user comprehensive profile (All authenticated roles)
+// GET /api/auth/profile, PUT /api/auth/profile
+router.route('/profile')
+  .get(protect, getUserProfile)
+  .put(protect, updateUserProfile);
 
 
 // Route: Register a new user (Customers only)

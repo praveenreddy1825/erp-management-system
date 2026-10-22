@@ -9,6 +9,7 @@ import purchaseOrderRoutes from './routes/purchaseOrderRoutes.js';
 import invoiceRoutes from './routes/invoiceRoutes.js';  
 import grnRoutes from './routes/grnRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import cartRoutes from './routes/cartRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
 const app = express();
@@ -21,6 +22,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/sales-orders', salesOrderRoutes);
+app.use('/api/cart', cartRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/grns', grnRoutes);
 app.use('/api/invoices', invoiceRoutes);

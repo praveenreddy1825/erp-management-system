@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext.jsx';
 
@@ -8,7 +8,7 @@ const Register = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
-  const [role, setRole] = useState('Customer'); // Defaults to Customer
+  const role = 'Customer';
   const [errorMsg, setErrorMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
@@ -22,7 +22,7 @@ const Register = () => {
     setSubmitting(false);
 
     if (result.success) {
-      navigate('/dashboard');
+      navigate('/products');
     } else {
       setErrorMsg(result.message);
     }
@@ -92,21 +92,6 @@ const Register = () => {
               className="w-full px-4 py-2.5 bg-white border border-[#D9D3C5] text-stone-900 rounded-xl focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm font-semibold transition-all placeholder-stone-400"
               placeholder="Min. 8 chars, 1 number, 1 special char"
             />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">Your Role</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full px-4 py-2.5 bg-white border border-[#D9D3C5] text-stone-900 rounded-xl focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm font-semibold transition-all cursor-pointer"
-            >
-              <option value="Customer">Customer (External Client)</option>
-              <option value="Sales_Manager">Sales Manager (Employee)</option>
-              <option value="Purchase_Manager">Purchase Manager (Employee)</option>
-              <option value="Inventory_Manager">Inventory Manager (Employee)</option>
-              <option value="Admin">System Administrator</option>
-            </select>
           </div>
 
           <button

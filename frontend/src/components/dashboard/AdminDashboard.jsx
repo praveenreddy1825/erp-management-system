@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   ResponsiveContainer,
@@ -12,7 +12,6 @@ import {
 } from 'recharts';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
-import WarningIcon from '@mui/icons-material/Warning';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import Inventory2Icon from '@mui/icons-material/Inventory2';
@@ -211,76 +210,46 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* Stock Alert Summary and Operational Tasks */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Critical Low Stock Panel */}
-        <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-gray-150 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-bold text-gray-800 text-sm">Critical Inventory Alert Warnings (Available ≤ Reorder Level)</h3>
-              <p className="text-xs text-gray-400">Products requiring procurement replenishment purchase orders</p>
-            </div>
-            {lowStockItems.length > 0 && (
-              <span className="px-2.5 py-0.5 bg-rose-100 text-rose-800 rounded-full text-xs font-bold">
-                {lowStockItems.length} Critical
-              </span>
-            )}
+      {/* Critical Low Stock Panel */}
+      <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-gray-800 text-sm">Critical Inventory Alert Warnings (Available ≤ Reorder Level)</h3>
+            <p className="text-xs text-gray-400">Products requiring procurement replenishment purchase orders</p>
           </div>
-
-          <div className="space-y-3">
-            {loading ? (
-              <div className="p-4 text-center text-gray-400 text-xs">Loading items...</div>
-            ) : lowStockItems.length === 0 ? (
-              <div className="p-6 text-center text-emerald-700 font-bold bg-emerald-50 rounded-lg text-xs border border-emerald-100">
-                ✓ All catalog inventory levels are healthy! No items at or below reorder threshold.
-              </div>
-            ) : (
-              lowStockItems.map((item) => (
-                <div
-                  key={item._id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-rose-50/40 rounded-lg border border-rose-100 text-xs text-gray-700 gap-2"
-                >
-                  <div>
-                    <span className="font-bold text-gray-900 block">{item.name}</span>
-                    <span className="text-gray-400 font-mono text-[11px]">SKU: {item.SKU} | Cat: {item.category}</span>
-                  </div>
-                  <div className="text-left sm:text-right">
-                    <span className="text-rose-700 font-black block">
-                      Available: {item.available} units (On-Hand: {item.onHand}, Reserved: {item.reserved})
-                    </span>
-                    <span className="text-gray-400 text-[11px]">Reorder Threshold: {item.reorderLevel} units</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          {lowStockItems.length > 0 && (
+            <span className="px-2.5 py-0.5 bg-rose-100 text-rose-800 rounded-full text-xs font-bold">
+              {lowStockItems.length} Critical
+            </span>
+          )}
         </div>
 
-        {/* Operational Task Board */}
-        <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm space-y-4">
-          <div>
-            <h3 className="font-bold text-gray-800 text-sm">Operational Task Board</h3>
-            <p className="text-xs text-gray-400">Standard checklist operations for business users</p>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div className="flex items-center space-x-2.5 p-3 hover:bg-gray-50 rounded-lg transition-colors border border-gray-100">
-              <input type="checkbox" defaultChecked className="w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer" />
-              <span className="font-semibold text-gray-700">Setup catalog items</span>
+        <div className="space-y-3">
+          {loading ? (
+            <div className="p-4 text-center text-gray-400 text-xs">Loading items...</div>
+          ) : lowStockItems.length === 0 ? (
+            <div className="p-6 text-center text-emerald-700 font-bold bg-emerald-50 rounded-lg text-xs border border-emerald-100">
+              ✓ All catalog inventory levels are healthy! No items at or below reorder threshold.
             </div>
-            <div className="flex items-center space-x-2.5 p-3 hover:bg-gray-50 rounded-lg transition-colors border border-gray-100">
-              <input type="checkbox" defaultChecked className="w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer" />
-              <span className="font-semibold text-gray-700">Audit customer directories</span>
-            </div>
-            <div className="flex items-center space-x-2.5 p-3 hover:bg-gray-50 rounded-lg transition-colors border border-gray-100">
-              <input type="checkbox" className="w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer" />
-              <span className="font-semibold text-gray-700">Acquire low stock elements</span>
-            </div>
-            <div className="flex items-center space-x-2.5 p-3 hover:bg-gray-50 rounded-lg transition-colors border border-gray-100">
-              <input type="checkbox" className="w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer" />
-              <span className="font-semibold text-gray-700">Process pending invoices</span>
-            </div>
-          </div>
+          ) : (
+            lowStockItems.map((item) => (
+              <div
+                key={item._id}
+                className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-rose-50/40 rounded-lg border border-rose-100 text-xs text-gray-700 gap-2"
+              >
+                <div>
+                  <span className="font-bold text-gray-900 block">{item.name}</span>
+                  <span className="text-gray-400 font-mono text-[11px]">SKU: {item.SKU} | Cat: {item.category}</span>
+                </div>
+                <div className="text-left sm:text-right">
+                  <span className="text-rose-700 font-black block">
+                    Available: {item.available} units (On-Hand: {item.onHand}, Reserved: {item.reserved})
+                  </span>
+                  <span className="text-gray-400 text-[11px]">Reorder Threshold: {item.reorderLevel} units</span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

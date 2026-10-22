@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext.jsx';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -86,11 +86,15 @@ const Invoices = () => {
   const handleMarkPaid = async (invoice) => {
     if (!invoice?._id) return;
     try {
-      setActionLoading(true);
+      const payAmount = (invoice.totalAmount && invoice.totalAmount > 0)
+        ? invoice.totalAmount
+        : (Number(invoice.salesOrder?.TotalAmount || invoice.salesOrder?.totalAmount) || 
+           (invoice.salesOrder?.products || []).reduce((acc, p) => acc + ((p.quantity || 0) * (p.price || 0)), 0) || 0);
+
       await axios.post(`http://127.0.0.1:9999/api/invoices/${invoice._id}/payments`, {
-        amount: invoice.totalAmount || invoice.salesOrder?.TotalAmount,
+        amount: payAmount,
         paymentMethod: 'Bank Transfer',
-        reference: `PAY-${Date.now().toString().slice(-6)}`,
+        reference: `PAY-${invoice._id.slice(-6).toUpperCase()}`,
       });
       showToast('Full customer payment recorded and verified!');
       await fetchData();
@@ -134,7 +138,7 @@ const Invoices = () => {
     doc.setFont('helvetica', 'normal');
     doc.text('ERP SYSTEM BILLING PORTAL', 140, 23);
 
-    // Invoice Metadata Box
+    // Invoice Details Box
     doc.setTextColor(50, 50, 50);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
@@ -144,8 +148,8 @@ const Invoices = () => {
     doc.setFontSize(10);
     doc.text(`Invoice No: ${invoice.invoiceNumber}`, 14, 58);
     doc.text(`Date Issued: ${new Date(invoice.createdAt).toLocaleDateString()}`, 14, 64);
-    doc.text(`Sales Order Ref: #${invoice.salesOrder?._id?.substring(invoice.salesOrder?._id?.length - 8)}`, 14, 70);
-    doc.text(`Payment Status: ${invoice.salesOrder?.paymentStatus || 'unpaid'}`, 14, 76);
+    const isPdfPaid = invoice.paymentStatus === 'Paid' || invoice.salesOrder?.paymentStatus === 'Paid';
+    doc.text(`Payment Status: ${isPdfPaid ? 'Paid' : (invoice.paymentStatus || invoice.salesOrder?.paymentStatus || 'Unpaid')}`, 14, 76);
 
     // Customer Billing Box
     doc.setFont('helvetica', 'bold');
@@ -155,8 +159,9 @@ const Invoices = () => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text(`Name: ${customer?.name || '—'}`, 120, 58);
-    doc.text(`Email: ${customer?.contactInfo?.email || '—'}`, 120, 64);
-    doc.text(`Address: ${customer?.contactInfo?.address?.street || '—'}`, 120, 70, { maxWidth: 80 });
+    const invoiceCustomerStreet = customer?.contactInfo?.address?.street;
+    const cleanCustomerStreet = (!invoiceCustomerStreet || ['Self-Registered Customer', 'Customer Delivery Address'].includes(invoiceCustomerStreet)) ? 'No details' : invoiceCustomerStreet;
+    doc.text(`Address: ${cleanCustomerStreet}`, 120, 70, { maxWidth: 80 });
 
     // Divider
     doc.setDrawColor(226, 232, 240);
@@ -195,11 +200,16 @@ const Invoices = () => {
     doc.setFont('helvetica', 'bold');
     doc.text(`Grand Total Amount:`, 140, finalY + 22);
 
+    const resolvedPdfTotal = (typeof invoice.totalAmount === 'number' && invoice.totalAmount > 0)
+      ? invoice.totalAmount
+      : (Number(invoice.salesOrder?.TotalAmount || invoice.salesOrder?.totalAmount) ||
+         (invoice.salesOrder?.products || []).reduce((acc, p) => acc + ((p.quantity || 0) * (p.price || 0)), 0) || 0);
+
     doc.setFont('helvetica', 'normal');
-    doc.text(`$${invoice.salesOrder?.TotalAmount?.toFixed(2)}`, 185, finalY + 8, { align: 'right' });
+    doc.text(`$${resolvedPdfTotal.toFixed(2)}`, 185, finalY + 8, { align: 'right' });
     doc.text(`$0.00`, 185, finalY + 14, { align: 'right' });
     doc.setFont('helvetica', 'bold');
-    doc.text(`$${invoice.salesOrder?.TotalAmount?.toFixed(2)}`, 185, finalY + 22, { align: 'right' });
+    doc.text(`$${resolvedPdfTotal.toFixed(2)}`, 185, finalY + 22, { align: 'right' });
 
     if (invoice.remarks) {
       doc.setFont('helvetica', 'bold');
@@ -322,8 +332,13 @@ const Invoices = () => {
                 </tr>
               ) : (
                 filteredInvoices.map((inv) => {
-                  const payment = inv.paymentStatus || inv.salesOrder?.paymentStatus || 'Unpaid';
-                  const grandTotal = typeof inv.totalAmount === 'number' ? inv.totalAmount : (inv.salesOrder?.TotalAmount || 0);
+                  const isPaid = inv.paymentStatus === 'Paid' || inv.salesOrder?.paymentStatus === 'Paid';
+                  const isPartial = !isPaid && (inv.paymentStatus === 'partial' || inv.salesOrder?.paymentStatus === 'partial');
+                  const payment = isPaid ? 'Paid' : isPartial ? 'partial' : 'Unpaid';
+                  const grandTotal = (typeof inv.totalAmount === 'number' && inv.totalAmount > 0)
+                    ? inv.totalAmount
+                    : (Number(inv.salesOrder?.TotalAmount || inv.salesOrder?.totalAmount) ||
+                       (inv.salesOrder?.products || []).reduce((acc, p) => acc + ((p.quantity || 0) * (p.price || 0)), 0) || 0);
 
                   return (
                     <tr key={inv._id} className="hover:bg-amber-50/30 transition-colors">
@@ -481,20 +496,30 @@ const Invoices = () => {
               </div>
 
               {/* Payment Section */}
-              <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-200 flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-bold text-gray-700 block">Payment Status:</span>
-                  <span className="text-gray-500 font-semibold">{selectedInvoice.paymentStatus || selectedInvoice.salesOrder?.paymentStatus || 'Unpaid'}</span>
-                </div>
-                {canWrite && (selectedInvoice.paymentStatus !== 'Paid' && selectedInvoice.salesOrder?.paymentStatus !== 'Paid') && (
-                  <button
-                    onClick={() => handleMarkPaid(selectedInvoice)}
-                    className="px-3 py-1 bg-emerald-600 text-white font-bold rounded cursor-pointer hover:bg-emerald-700"
-                  >
-                    💳 Record Full Payment
-                  </button>
-                )}
-              </div>
+              {(() => {
+                const isModalPaid = selectedInvoice.paymentStatus === 'Paid' || selectedInvoice.salesOrder?.paymentStatus === 'Paid';
+                const isModalPartial = !isModalPaid && (selectedInvoice.paymentStatus === 'partial' || selectedInvoice.salesOrder?.paymentStatus === 'partial');
+                const modalPayment = isModalPaid ? 'Paid' : isModalPartial ? 'Partial' : 'Unpaid';
+
+                return (
+                  <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-200 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-bold text-gray-700 block">Payment Status:</span>
+                      <span className={`font-semibold ${isModalPaid ? 'text-emerald-700 font-bold' : isModalPartial ? 'text-amber-700' : 'text-gray-500'}`}>
+                        {modalPayment === 'Paid' ? '✓ Paid' : modalPayment === 'Partial' ? '⏳ Partial' : '✕ Unpaid'}
+                      </span>
+                    </div>
+                    {canWrite && !isModalPaid && (
+                      <button
+                        onClick={() => handleMarkPaid(selectedInvoice)}
+                        className="px-3 py-1 bg-emerald-600 text-white font-bold rounded cursor-pointer hover:bg-emerald-700"
+                      >
+                        💳 Record Full Payment
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div>
                 <span className="block text-xs font-bold text-gray-500 uppercase mb-2">Billed Line Items</span>
@@ -521,7 +546,14 @@ const Invoices = () => {
               <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
                 <div>
                   <span className="text-xs text-gray-500 block">Grand Total</span>
-                  <span className="text-xl font-black text-emerald-700">${selectedInvoice.salesOrder?.TotalAmount?.toFixed(2)}</span>
+                  <span className="text-xl font-black text-emerald-700">
+                    ${(
+                      (typeof selectedInvoice.totalAmount === 'number' && selectedInvoice.totalAmount > 0)
+                        ? selectedInvoice.totalAmount
+                        : (Number(selectedInvoice.salesOrder?.TotalAmount || selectedInvoice.salesOrder?.totalAmount) ||
+                           (selectedInvoice.salesOrder?.products || []).reduce((acc, p) => acc + ((p.quantity || 0) * (p.price || 0)), 0) || 0)
+                    ).toFixed(2)}
+                  </span>
                 </div>
                 <button
                   onClick={() => handleExportPDF(selectedInvoice)}

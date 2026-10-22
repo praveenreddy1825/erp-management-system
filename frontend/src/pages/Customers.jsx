@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext.jsx';
 import EditIcon from '@mui/icons-material/Edit';
@@ -64,7 +64,7 @@ const Customers = () => {
       name: customer.name,
       email: customer.contactInfo?.email || '',
       phone_number: customer.contactInfo?.phone_number || '',
-      address: customer.contactInfo?.address?.street || '',
+      address: (!customer.contactInfo?.address?.street || ['Self-Registered Customer', 'Customer Delivery Address', 'No details', 'NA'].includes(customer.contactInfo?.address?.street)) ? '' : customer.contactInfo?.address?.street,
     });
     setIsModalOpen(true);
   };
@@ -171,7 +171,7 @@ const Customers = () => {
                     <td className="p-4 font-bold text-gray-900">{cust.name}</td>
                     <td className="p-4 font-mono text-gray-600">{cust.contactInfo?.email || '—'}</td>
                     <td className="p-4">{cust.contactInfo?.phone_number || '—'}</td>
-                    <td className="p-4 text-gray-600 truncate max-w-xs">{cust.contactInfo?.address?.street || '—'}</td>
+                    <td className="p-4 text-gray-600 truncate max-w-xs">{(!cust.contactInfo?.address?.street || ['Self-Registered Customer', 'Customer Delivery Address'].includes(cust.contactInfo?.address?.street)) ? 'No details' : cust.contactInfo?.address?.street}</td>
                     {showActions && (
                       <td className="p-4 flex items-center justify-center space-x-2">
                         {canEditCustomer(cust) && (

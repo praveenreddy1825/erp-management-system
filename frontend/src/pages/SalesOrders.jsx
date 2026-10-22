@@ -1,12 +1,10 @@
-import React, { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext.jsx';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import CancelIcon from '@mui/icons-material/Cancel';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
-import PaymentIcon from '@mui/icons-material/Payment';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DownloadIcon from '@mui/icons-material/Download';
 import jsPDF from 'jspdf';
@@ -214,14 +212,15 @@ const SalesOrders = () => {
     doc.setTextColor(50, 50, 50);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text('INVOICE METADATA', 14, 48);
+    doc.text('INVOICE DETAILS', 14, 48);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.text(`Invoice No: ${inv.invoiceNumber}`, 14, 55);
     doc.text(`Date Issued: ${new Date(inv.createdAt).toLocaleDateString()}`, 14, 61);
     doc.text(`Sales Order Ref: #${inv.salesOrder?._id?.substring(inv.salesOrder?._id?.length - 8)}`, 14, 67);
-    doc.text(`Payment Status: ${inv.salesOrder?.paymentStatus || 'unpaid'}`, 14, 73);
+    const isInvPaid = inv.paymentStatus === 'Paid' || inv.salesOrder?.paymentStatus === 'Paid';
+    doc.text(`Payment Status: ${isInvPaid ? 'Paid' : (inv.salesOrder?.paymentStatus || 'unpaid')}`, 14, 73);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
@@ -230,8 +229,9 @@ const SalesOrders = () => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.text(`Customer Name: ${customer?.name || '—'}`, 120, 55);
-    doc.text(`Email: ${customer?.contactInfo?.email || '—'}`, 120, 61);
-    doc.text(`Address: ${customer?.contactInfo?.address?.street || '—'}`, 120, 67, { maxWidth: 80 });
+    const soCustomerStreet = customer?.contactInfo?.address?.street;
+    const cleanSoCustomerStreet = (!soCustomerStreet || ['Self-Registered Customer', 'Customer Delivery Address'].includes(soCustomerStreet)) ? 'No details' : soCustomerStreet;
+    doc.text(`Address: ${cleanSoCustomerStreet}`, 120, 67, { maxWidth: 80 });
 
     doc.setDrawColor(226, 232, 240);
     doc.line(14, 80, 196, 80);
@@ -364,34 +364,27 @@ const SalesOrders = () => {
         )}
       </div>
 
-      {/* Workflow Explainer Pipeline Stepper */}
-      <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-150 shadow-xs">
-        <div className="text-xs font-bold uppercase tracking-wider text-amber-700 mb-3 flex items-center space-x-2">
-          <span>🔄 Streamlined Sales & Fulfillment Lifecycle</span>
-          <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-mono font-bold">Fast-Track Delivery</span>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-          <div className="p-3 rounded-lg bg-amber-50/70 border border-amber-100 flex items-start space-x-2.5">
-            <span className="w-5 h-5 rounded-full bg-amber-400 text-stone-950 font-black flex items-center justify-center text-[11px] shrink-0">1</span>
-            <div>
-              <p className="font-bold text-gray-800">Order Placed (Pending)</p>
-              <p className="text-gray-500 text-[11px]">Pricing locked; stock reserved from warehouse catalog.</p>
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-blue-50/70 border border-blue-100 flex items-start space-x-2.5">
-            <span className="w-5 h-5 rounded-full bg-blue-500 text-white font-black flex items-center justify-center text-[11px] shrink-0">2</span>
-            <div>
-              <p className="font-bold text-gray-800">Processing</p>
-              <p className="text-gray-500 text-[11px]">Warehouse packs items; cashier records payment if ready.</p>
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-100 flex items-start space-x-2.5">
-            <span className="w-5 h-5 rounded-full bg-emerald-500 text-white font-black flex items-center justify-center text-[11px] shrink-0">3</span>
-            <div>
-              <p className="font-bold text-gray-800">Delivered & Settled</p>
-              <p className="text-gray-500 text-[11px]">Customer receives shipment; inventory fulfilled; invoice ready.</p>
-            </div>
-          </div>
+      {/* Compact Core Order Flow */}
+      <div className="bg-white px-5 py-3 rounded-xl border border-gray-150 shadow-xs flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span className="text-[11px] font-black uppercase tracking-wider text-stone-500">
+          Fulfillment Flow:
+        </span>
+        <div className="flex items-center space-x-2 font-bold text-xs">
+          <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+            Pending
+          </span>
+          <span className="text-stone-400 font-bold">&rarr;</span>
+          <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-900 border border-blue-300">
+            Processing
+          </span>
+          <span className="text-stone-400 font-bold">&rarr;</span>
+          <span className="px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-300">
+            Shipped
+          </span>
+          <span className="text-stone-400 font-bold">&rarr;</span>
+          <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
+            Delivered
+          </span>
         </div>
       </div>
 

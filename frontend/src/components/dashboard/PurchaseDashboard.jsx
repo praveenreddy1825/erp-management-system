@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   ResponsiveContainer,
@@ -128,53 +128,28 @@ const PurchaseDashboard = () => {
         ))}
       </div>
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Status Distribution */}
-        <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-gray-150 shadow-sm space-y-4">
-          <div>
-            <h3 className="font-bold text-gray-800">Procurement Order Distribution</h3>
-            <p className="text-xs text-gray-400">Total count of purchase orders issued by stage</p>
-          </div>
-          <div className="h-64">
-            {loading ? (
-              <div className="h-full flex items-center justify-center text-gray-400 text-sm">Loading chart...</div>
-            ) : chartData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-gray-400 text-sm">No procurement orders.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} />
-                  <Tooltip cursor={{ fill: '#f8fafc' }} />
-                  <Bar dataKey="Count" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+      {/* Status Distribution */}
+      <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm space-y-4">
+        <div>
+          <h3 className="font-bold text-gray-800">Procurement Order Distribution</h3>
+          <p className="text-xs text-gray-400">Total count of purchase orders issued by stage</p>
         </div>
-
-        {/* Task Board */}
-        <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm space-y-4">
-          <div>
-            <h3 className="font-bold text-gray-800 text-sm">Procurement Check Board</h3>
-            <p className="text-xs text-gray-400">Standard operational goals for procurement</p>
-          </div>
-          <div className="space-y-3 text-xs">
-            <div className="flex items-center space-x-2.5 p-3 hover:bg-gray-50 rounded-lg border border-gray-100">
-              <input type="checkbox" defaultChecked className="w-4 h-4 text-emerald-600 border-gray-300 rounded cursor-pointer" />
-              <span className="font-semibold text-gray-700">Audit vendor pricing tables</span>
-            </div>
-            <div className="flex items-center space-x-2.5 p-3 hover:bg-gray-50 rounded-lg border border-gray-100">
-              <input type="checkbox" className="w-4 h-4 text-emerald-600 border-gray-300 rounded cursor-pointer" />
-              <span className="font-semibold text-gray-700">Draft POs for low stock lines</span>
-            </div>
-            <div className="flex items-center space-x-2.5 p-3 hover:bg-gray-50 rounded-lg border border-gray-100">
-              <input type="checkbox" className="w-4 h-4 text-emerald-600 border-gray-300 rounded cursor-pointer" />
-              <span className="font-semibold text-gray-700">Verify supplier lead timelines</span>
-            </div>
-          </div>
+        <div className="h-64">
+          {loading ? (
+            <div className="h-full flex items-center justify-center text-gray-400 text-sm">Loading chart...</div>
+          ) : chartData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-gray-400 text-sm">No procurement orders.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} />
+                <Tooltip cursor={{ fill: '#f8fafc' }} />
+                <Bar dataKey="Count" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 

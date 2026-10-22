@@ -4,6 +4,8 @@ import StockMovement from '../models/StockMovement.js';
 /**
  * Centralized Inventory Service Helper
  * Enforces fundamental invariants: available = onHand - reserved; stock = onHand.
+ * Uses atomic conditional updates ($gte + $inc) to guarantee concurrency safety
+ * on both standalone MongoDB instances and ReplicaSet deployments.
  * All mutations record immutable StockMovement ledger entries.
  */
 
@@ -18,18 +20,28 @@ export const recordGoodsReceipt = async ({
 }) => {
   if (acceptedQuantity <= 0) return null;
 
-  const product = await Product.findById(productId).session(session);
+  const product = await Product.findOneAndUpdate(
+    { _id: productId },
+    {
+      $inc: {
+        onHand: acceptedQuantity,
+        available: acceptedQuantity,
+        stock: acceptedQuantity,
+      },
+    },
+    {
+      returnDocument: 'after',
+      session,
+    }
+  );
   if (!product) throw new Error(`Product ${productId} not found during goods receipt`);
 
-  const onHandBefore = product.onHand || 0;
-  const reservedBefore = product.reserved || 0;
-  const availableBefore = product.available || 0;
-
-  product.onHand = onHandBefore + acceptedQuantity;
-  product.stock = product.onHand;
-  product.available = Math.max(0, product.onHand - product.reserved);
-
-  await product.save({ session });
+  const onHandAfter = product.onHand;
+  const onHandBefore = onHandAfter - acceptedQuantity;
+  const reservedBefore = product.reserved;
+  const reservedAfter = product.reserved;
+  const availableAfter = product.available;
+  const availableBefore = availableAfter - acceptedQuantity;
 
   const [movement] = await StockMovement.create(
     [
@@ -42,11 +54,11 @@ export const recordGoodsReceipt = async ({
         sourceDocumentType: 'GRN',
         actor,
         onHandBefore,
-        onHandAfter: product.onHand,
+        onHandAfter,
         reservedBefore,
-        reservedAfter: product.reserved,
+        reservedAfter,
         availableBefore,
-        availableAfter: product.available,
+        availableAfter,
         reason,
       },
     ],
@@ -63,60 +75,119 @@ export const reserveStockForOrder = async ({
   actor,
   session = null,
 }) => {
+  // Sort deterministically by product ID string to prevent deadlocks under concurrency
+  const sortedItems = [...lineItems].sort((a, b) => {
+    const idA = String(a.product?._id || a.product);
+    const idB = String(b.product?._id || b.product);
+    return idA.localeCompare(idB);
+  });
+
   const reservedResults = [];
+  const successfullyReserved = [];
 
-  for (const item of lineItems) {
-    const prodId = item.product?._id || item.product;
-    const reqQty = parseInt(item.quantity, 10);
-    if (isNaN(reqQty) || reqQty <= 0) {
-      throw new Error(`Invalid order quantity for product ${prodId}`);
-    }
+  try {
+    for (const item of sortedItems) {
+      const prodId = item.product?._id || item.product;
+      const reqQty = parseInt(item.quantity, 10);
+      if (isNaN(reqQty) || reqQty <= 0) {
+        throw new Error(`Invalid order quantity for product ${prodId}`);
+      }
 
-    // Atomic fetch with availability guard
-    const product = await Product.findById(prodId).session(session);
-    if (!product) throw new Error(`Product ${prodId} not found`);
-
-    if (product.available < reqQty) {
-      throw new Error(
-        `Insufficient available stock for "${product.name}". Requested: ${reqQty}, Available: ${product.available}`
-      );
-    }
-
-    const onHandBefore = product.onHand;
-    const reservedBefore = product.reserved;
-    const availableBefore = product.available;
-
-    product.reserved += reqQty;
-    product.available = Math.max(0, product.onHand - product.reserved);
-
-    await product.save({ session });
-
-    const [movement] = await StockMovement.create(
-      [
+      // Atomic conditional update: increment reserved & decrement available ONLY IF available >= reqQty
+      const updatedProduct = await Product.findOneAndUpdate(
         {
-          product: product._id,
-          quantity: reqQty,
-          movementType: 'Order_Reservation',
-          sourceDocument,
-          sourceDocumentId,
-          sourceDocumentType: 'SalesOrder',
-          actor,
-          onHandBefore,
-          onHandAfter: product.onHand,
-          reservedBefore,
-          reservedAfter: product.reserved,
-          availableBefore,
-          availableAfter: product.available,
-          reason: `Stock allocated for order ${sourceDocument}`,
+          _id: prodId,
+          available: { $gte: reqQty },
         },
-      ],
-      { session }
-    );
+        {
+          $inc: {
+            reserved: reqQty,
+            available: -reqQty,
+          },
+        },
+        {
+          returnDocument: 'after',
+          session,
+        }
+      );
 
-    reservedResults.push({ product, movement });
+      if (!updatedProduct) {
+        // Query to provide a clear, helpful out-of-stock error message
+        const currentProd = await Product.findById(prodId).session(session);
+        if (!currentProd) {
+          throw new Error(`Product not found with ID ${prodId}`);
+        }
+        const avail = typeof currentProd.available === 'number' ? currentProd.available : currentProd.stock || 0;
+        throw new Error(
+          `Insufficient available stock for product "${currentProd.name}". Available: ${avail}, Requested: ${reqQty}. Please wait for stock replenishment.`
+        );
+      }
+
+      successfullyReserved.push({
+        productId: prodId,
+        quantity: reqQty,
+        product: updatedProduct,
+      });
+    }
+
+    // All line items reserved successfully! Now write immutable StockMovement ledger entries
+    for (const resItem of successfullyReserved) {
+      const prod = resItem.product;
+      const qty = resItem.quantity;
+      const onHandBefore = prod.onHand;
+      const onHandAfter = prod.onHand;
+      const reservedAfter = prod.reserved;
+      const reservedBefore = reservedAfter - qty;
+      const availableAfter = prod.available;
+      const availableBefore = availableAfter + qty;
+
+      const [movement] = await StockMovement.create(
+        [
+          {
+            product: prod._id,
+            quantity: qty,
+            movementType: 'Order_Reservation',
+            sourceDocument,
+            sourceDocumentId,
+            sourceDocumentType: 'SalesOrder',
+            actor,
+            onHandBefore,
+            onHandAfter,
+            reservedBefore,
+            reservedAfter,
+            availableBefore,
+            availableAfter,
+            reason: `Stock allocated for order ${sourceDocument}`,
+          },
+        ],
+        { session }
+      );
+
+      reservedResults.push({ product: prod, movement });
+    }
+
+    return reservedResults;
+  } catch (error) {
+    // Immediate compensation workflow: release any items reserved in this attempt
+    // Ensures all-or-nothing atomicity even without replica-set transaction support
+    for (const resItem of successfullyReserved) {
+      try {
+        await Product.findOneAndUpdate(
+          { _id: resItem.productId },
+          {
+            $inc: {
+              reserved: -resItem.quantity,
+              available: resItem.quantity,
+            },
+          },
+          { session }
+        );
+      } catch (compensationErr) {
+        console.error(`Failed to compensate reservation for product ${resItem.productId}:`, compensationErr);
+      }
+    }
+    throw error;
   }
-
-  return reservedResults;
 };
 
 export const releaseOrderReservation = async ({
@@ -129,22 +200,45 @@ export const releaseOrderReservation = async ({
 }) => {
   const releaseResults = [];
 
-  for (const item of lineItems) {
+  const sortedItems = [...lineItems].sort((a, b) => {
+    const idA = String(a.product?._id || a.product);
+    const idB = String(b.product?._id || b.product);
+    return idA.localeCompare(idB);
+  });
+
+  for (const item of sortedItems) {
     const prodId = item.product?._id || item.product;
     const qty = parseInt(item.quantity, 10);
     if (isNaN(qty) || qty <= 0) continue;
 
-    const product = await Product.findById(prodId).session(session);
-    if (!product) continue;
+    // Atomic conditional decrement of reserved and increment of available
+    const product = await Product.findOneAndUpdate(
+      {
+        _id: prodId,
+        reserved: { $gte: qty },
+      },
+      {
+        $inc: {
+          reserved: -qty,
+          available: qty,
+        },
+      },
+      {
+        returnDocument: 'after',
+        session,
+      }
+    );
+
+    if (!product) {
+      continue;
+    }
 
     const onHandBefore = product.onHand;
-    const reservedBefore = product.reserved;
-    const availableBefore = product.available;
-
-    product.reserved = Math.max(0, product.reserved - qty);
-    product.available = Math.max(0, product.onHand - product.reserved);
-
-    await product.save({ session });
+    const onHandAfter = product.onHand;
+    const reservedAfter = product.reserved;
+    const reservedBefore = reservedAfter + qty;
+    const availableAfter = product.available;
+    const availableBefore = availableAfter - qty;
 
     const [movement] = await StockMovement.create(
       [
@@ -157,11 +251,11 @@ export const releaseOrderReservation = async ({
           sourceDocumentType: 'SalesOrder',
           actor,
           onHandBefore,
-          onHandAfter: product.onHand,
+          onHandAfter,
           reservedBefore,
-          reservedAfter: product.reserved,
+          reservedAfter,
           availableBefore,
-          availableAfter: product.available,
+          availableAfter,
           reason,
         },
       ],
@@ -183,28 +277,49 @@ export const fulfillOrderStock = async ({
 }) => {
   const fulfillmentResults = [];
 
-  for (const item of lineItems) {
+  const sortedItems = [...lineItems].sort((a, b) => {
+    const idA = String(a.product?._id || a.product);
+    const idB = String(b.product?._id || b.product);
+    return idA.localeCompare(idB);
+  });
+
+  for (const item of sortedItems) {
     const prodId = item.product?._id || item.product;
     const qty = parseInt(item.quantity, 10);
     if (isNaN(qty) || qty <= 0) continue;
 
-    const product = await Product.findById(prodId).session(session);
-    if (!product) throw new Error(`Product ${prodId} not found during fulfillment`);
+    // Atomic conditional deduction of physical onHand and reserved
+    const product = await Product.findOneAndUpdate(
+      {
+        _id: prodId,
+        onHand: { $gte: qty },
+        reserved: { $gte: qty },
+      },
+      {
+        $inc: {
+          onHand: -qty,
+          reserved: -qty,
+          stock: -qty,
+        },
+      },
+      {
+        returnDocument: 'after',
+        session,
+      }
+    );
 
-    if (product.onHand < qty) {
-      throw new Error(`Cannot fulfill: On-hand physical stock for "${product.name}" is less than ordered quantity.`);
+    if (!product) {
+      const prodDoc = await Product.findById(prodId).session(session);
+      if (!prodDoc) throw new Error(`Product ${prodId} not found during fulfillment`);
+      throw new Error(`Cannot fulfill: On-hand physical stock for "${prodDoc.name}" is less than ordered quantity.`);
     }
 
-    const onHandBefore = product.onHand;
-    const reservedBefore = product.reserved;
+    const onHandAfter = product.onHand;
+    const onHandBefore = onHandAfter + qty;
+    const reservedAfter = product.reserved;
+    const reservedBefore = reservedAfter + qty;
+    const availableAfter = product.available;
     const availableBefore = product.available;
-
-    product.onHand = Math.max(0, product.onHand - qty);
-    product.reserved = Math.max(0, product.reserved - qty);
-    product.available = Math.max(0, product.onHand - product.reserved);
-    product.stock = product.onHand;
-
-    await product.save({ session });
 
     const [movement] = await StockMovement.create(
       [
@@ -217,11 +332,11 @@ export const fulfillOrderStock = async ({
           sourceDocumentType: 'SalesOrder',
           actor,
           onHandBefore,
-          onHandAfter: product.onHand,
+          onHandAfter,
           reservedBefore,
-          reservedAfter: product.reserved,
+          reservedAfter,
           availableBefore,
-          availableAfter: product.available,
+          availableAfter,
           reason: `Physical inventory deducted upon customer fulfillment for ${sourceDocument}`,
         },
       ],

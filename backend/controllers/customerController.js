@@ -36,6 +36,12 @@ export const getCustomers = async (req, res) => {
 
     const total = await Customer.countDocuments(query);
     
+    // Clean up any legacy placeholder address text
+    await Contact.updateMany(
+      { 'address.street': { $in: ['Self-Registered Customer', 'Customer Delivery Address'] } },
+      { $set: { 'address.street': 'No details' } }
+    ).catch(() => {});
+
     // Fetch customers and populate the contactInfo reference
     const customers = await Customer.find(query)
       .populate('contactInfo')

@@ -1,20 +1,16 @@
-import React, { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext.jsx';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import ShoppingBagIcon from '@mui/icons-material/ShoppingBag';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import SearchIcon from '@mui/icons-material/Search';
-import TuneIcon from '@mui/icons-material/Tune';
-import StorefrontIcon from '@mui/icons-material/Storefront';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 
 // Predefined ERP Categories (Enum) with Rich UI Metadata & SKU Prefixes
@@ -150,6 +146,34 @@ const Products = () => {
     return typeof p.available === 'number' ? p.available : Math.max(0, onHand - reserved);
   };
 
+  // Sync with server cart on mount for logged-in Customer
+  useEffect(() => {
+    if (isCustomer) {
+      const token = localStorage.getItem('token');
+      if (token) {
+        axios
+          .get('http://127.0.0.1:9999/api/cart', {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          .then((res) => {
+            if (res.data && res.data.items && res.data.items.length > 0) {
+              const remoteCart = {};
+              res.data.items.forEach((it) => {
+                if (it.product && it.product._id) {
+                  remoteCart[it.product._id] = {
+                    product: it.product,
+                    quantity: it.quantity,
+                  };
+                }
+              });
+              setCart(remoteCart);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [isCustomer]);
+
   const addToCart = (product) => {
     const available = getProductAvailable(product);
     if (available <= 0) {
@@ -171,6 +195,13 @@ const Products = () => {
         },
       };
     });
+
+    const token = localStorage.getItem('token');
+    if (token) {
+      axios.post('http://127.0.0.1:9999/api/cart/items', { productId: product._id, quantity: 1 }, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch(() => {});
+    }
   };
 
   const updateCartQty = (productId, newQty) => {
@@ -195,6 +226,13 @@ const Products = () => {
         [productId]: { ...existing, quantity: newQty },
       };
     });
+
+    const token = localStorage.getItem('token');
+    if (token) {
+      axios.put(`http://127.0.0.1:9999/api/cart/items/${productId}`, { quantity: newQty }, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch(() => {});
+    }
   };
 
   const removeFromCart = (productId) => {
@@ -203,10 +241,23 @@ const Products = () => {
       delete copy[productId];
       return copy;
     });
+
+    const token = localStorage.getItem('token');
+    if (token) {
+      axios.delete(`http://127.0.0.1:9999/api/cart/items/${productId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch(() => {});
+    }
   };
 
   const clearCart = () => {
     setCart({});
+    const token = localStorage.getItem('token');
+    if (token) {
+      axios.delete('http://127.0.0.1:9999/api/cart', {
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch(() => {});
+    }
   };
 
   // Cart Aggregations
@@ -223,7 +274,12 @@ const Products = () => {
 
     try {
       setOrderPlacing(true);
+      const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idemp-${Date.now()}-${Math.floor(100000 + Math.random() * 900000)}`;
+
       const payload = {
+        idempotencyKey,
         items: cartEntries.map((item) => ({
           product: item.product._id,
           quantity: item.quantity,
@@ -233,7 +289,15 @@ const Products = () => {
         paymentStatus: 'unpaid',
       };
 
-      const res = await axios.post('http://127.0.0.1:9999/api/sales-orders', payload);
+      const token = localStorage.getItem('token');
+      const headers = {
+        'Idempotency-Key': idempotencyKey,
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await axios.post('http://127.0.0.1:9999/api/sales-orders', payload, { headers });
 
       // Successfully placed
       setOrderSuccessData({
@@ -610,7 +674,6 @@ const Products = () => {
                       {cartEntries.map(({ product, quantity }) => {
                         const available = getProductAvailable(product);
                         const meta = getCategoryMeta(product.category);
-                        const lineTotal = product.price * quantity;
 
                         return (
                           <div

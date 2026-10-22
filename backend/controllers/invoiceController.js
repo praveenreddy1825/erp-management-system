@@ -2,7 +2,6 @@ import Invoice from '../models/Invoice.js';
 import SalesOrder from '../models/SalesOrder.js';
 import Contact from '../models/Contact.js';
 import Customer from '../models/Customer.js';
-import User from '../models/User.js';
 
 // @desc    Create a new Invoice for a fulfilled Sales Order
 // @route   POST /api/invoices
@@ -35,13 +34,30 @@ export const createInvoice = async (req, res) => {
 
     const invoiceNumber = `INV-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    // 4. Create Invoice
+    // 4. Calculate authoritative order total (checks TotalAmount, totalAmount, or sum of products)
+    const orderTotal = Number(
+      order.TotalAmount ||
+      order.totalAmount ||
+      (order.products || []).reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.price || 0)), 0)
+    ) || 0;
+
+    // If order has 0 recorded for TotalAmount, also heal order document
+    if ((!order.TotalAmount || order.TotalAmount <= 0) && orderTotal > 0) {
+      order.TotalAmount = orderTotal;
+      await order.save().catch(() => {});
+    }
+
+    const isOrderPaid = order.paymentStatus === 'Paid';
     const invoice = await Invoice.create({
       invoiceNumber,
       salesOrder: order._id,
       customer: order.customer,
-      totalAmount: order.TotalAmount,
-      paymentStatus: 'Unpaid',
+      totalAmount: orderTotal,
+      paymentStatus: isOrderPaid ? 'Paid' : 'Unpaid',
+      paidAmount: isOrderPaid ? orderTotal : 0,
+      paidDate: isOrderPaid ? new Date() : null,
+      paymentMethod: isOrderPaid ? 'Direct Payment / Checkout' : undefined,
+      recordedBy: isOrderPaid ? (req.user?._id || undefined) : undefined,
       dueDate,
       remarks,
     });
@@ -133,6 +149,39 @@ export const getInvoices = async (req, res) => {
       .skip(skip)
       .limit(limit);
 
+    // Reconcile and auto-heal totalAmount and payment status if linked Sales Order has amount or is Paid
+    invoices.forEach((inv) => {
+      const orderTotal = Number(
+        inv.salesOrder?.TotalAmount ||
+        inv.salesOrder?.totalAmount ||
+        (inv.salesOrder?.products || []).reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.price || 0)), 0)
+      ) || 0;
+
+      const needsTotalUpdate = (!inv.totalAmount || inv.totalAmount <= 0) && orderTotal > 0;
+      const needsPaidUpdate = inv.paymentStatus !== 'Paid' && inv.salesOrder?.paymentStatus === 'Paid';
+
+      if (needsTotalUpdate || needsPaidUpdate) {
+        if (needsTotalUpdate) {
+          inv.totalAmount = orderTotal;
+        }
+        if (needsPaidUpdate) {
+          inv.paymentStatus = 'Paid';
+          inv.paidAmount = inv.totalAmount;
+        }
+
+        const updateFields = {};
+        if (needsTotalUpdate) updateFields.totalAmount = orderTotal;
+        if (needsPaidUpdate) {
+          updateFields.paymentStatus = 'Paid';
+          updateFields.paidAmount = inv.totalAmount;
+          updateFields.paidDate = inv.salesOrder?.updatedAt || new Date();
+          updateFields.paymentMethod = 'Direct Payment / Sales Order';
+        }
+
+        Invoice.findByIdAndUpdate(inv._id, updateFields).exec();
+      }
+    });
+
     res.status(200).json({
       invoices,
       page,
@@ -169,6 +218,33 @@ export const getInvoiceById = async (req, res) => {
       return res.status(404).json({ message: 'Invoice not found' });
     }
 
+    // Auto-heal totalAmount and payment status if linked Sales Order has amount or is Paid
+    const orderTotal = Number(
+      invoice.salesOrder?.TotalAmount ||
+      invoice.salesOrder?.totalAmount ||
+      (invoice.salesOrder?.products || []).reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.price || 0)), 0)
+    ) || 0;
+
+    const needsTotalUpdate = (!invoice.totalAmount || invoice.totalAmount <= 0) && orderTotal > 0;
+    const needsPaidUpdate = invoice.paymentStatus !== 'Paid' && invoice.salesOrder?.paymentStatus === 'Paid';
+
+    if (needsTotalUpdate || needsPaidUpdate) {
+      if (needsTotalUpdate) invoice.totalAmount = orderTotal;
+      if (needsPaidUpdate) {
+        invoice.paymentStatus = 'Paid';
+        invoice.paidAmount = invoice.totalAmount;
+      }
+      const updateFields = {};
+      if (needsTotalUpdate) updateFields.totalAmount = orderTotal;
+      if (needsPaidUpdate) {
+        updateFields.paymentStatus = 'Paid';
+        updateFields.paidAmount = invoice.totalAmount;
+        updateFields.paidDate = invoice.salesOrder?.updatedAt || new Date();
+        updateFields.paymentMethod = 'Direct Payment / Sales Order';
+      }
+      await Invoice.findByIdAndUpdate(invoice._id, updateFields);
+    }
+
     // Access check: Customers can only view their own invoices
     if (req.user && req.user.role === 'Customer') {
       const contact = await Contact.findOne({ email: req.user.email });
@@ -196,8 +272,52 @@ export const recordCustomerPayment = async (req, res) => {
       return res.status(404).json({ message: 'Invoice not found' });
     }
 
+    // Auto-heal totalAmount if legacy invoice had 0 recorded
+    if (!invoice.totalAmount || invoice.totalAmount <= 0) {
+      const order = await SalesOrder.findById(invoice.salesOrder);
+      const computedTotal = Number(
+        order?.TotalAmount ||
+        order?.totalAmount ||
+        (order?.products || []).reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.price || 0)), 0)
+      ) || 0;
+      if (computedTotal > 0) {
+        invoice.totalAmount = computedTotal;
+        await Invoice.findByIdAndUpdate(invoice._id, { totalAmount: computedTotal });
+      }
+    }
+
+    const cleanRef = reference?.trim();
+
+    // Idempotent retry check: if already paid with same reference, return success idempotently
     if (invoice.paymentStatus === 'Paid') {
+      if (cleanRef && invoice.paymentReference === cleanRef) {
+        const populated = await Invoice.findById(invoice._id)
+          .populate({
+            path: 'salesOrder',
+            populate: [
+              { path: 'customer', populate: { path: 'contactInfo' } },
+              { path: 'products.product' },
+            ],
+          })
+          .populate('customer')
+          .populate('recordedBy', 'name email');
+
+        return res.status(200).json({
+          message: 'Customer payment recorded successfully (idempotent replay)',
+          invoice: populated,
+        });
+      }
       return res.status(400).json({ message: 'This invoice has already been paid in full' });
+    }
+
+    // Verify linked Sales Order is not cancelled or rejected
+    if (invoice.salesOrder) {
+      const order = await SalesOrder.findById(invoice.salesOrder);
+      if (order && ['Cancelled', 'Rejected'].includes(order.status)) {
+        return res.status(400).json({
+          message: `Cannot record payment: Linked Sales Order is "${order.status}".`,
+        });
+      }
     }
 
     const payAmount = parseFloat(amount);
@@ -212,22 +332,55 @@ export const recordCustomerPayment = async (req, res) => {
       });
     }
 
-    invoice.paymentStatus = 'Paid';
-    invoice.paidAmount = invoice.totalAmount;
-    invoice.paidDate = new Date();
-    invoice.paymentMethod = paymentMethod || 'Bank Transfer';
-    invoice.paymentReference = reference?.trim();
-    invoice.recordedBy = req.user._id;
-    if (notes) invoice.remarks = (invoice.remarks ? `${invoice.remarks} | ` : '') + notes.trim();
+    // Atomic conditional update ensures only one concurrent payment can succeed
+    const updatedInvoice = await Invoice.findOneAndUpdate(
+      {
+        _id: invoice._id,
+        paymentStatus: 'Unpaid',
+      },
+      {
+        $set: {
+          paymentStatus: 'Paid',
+          paidAmount: invoice.totalAmount,
+          paidDate: new Date(),
+          paymentMethod: paymentMethod || 'Bank Transfer',
+          paymentReference: cleanRef,
+          recordedBy: req.user._id,
+          remarks: notes ? ((invoice.remarks ? `${invoice.remarks} | ` : '') + notes.trim()) : invoice.remarks,
+        },
+      },
+      { returnDocument: 'after' }
+    );
 
-    await invoice.save();
+    if (!updatedInvoice) {
+      // Check if another concurrent request just paid it with the same reference
+      const checkAgain = await Invoice.findById(invoice._id);
+      if (checkAgain && checkAgain.paymentStatus === 'Paid' && cleanRef && checkAgain.paymentReference === cleanRef) {
+        const populated = await Invoice.findById(checkAgain._id)
+          .populate({
+            path: 'salesOrder',
+            populate: [
+              { path: 'customer', populate: { path: 'contactInfo' } },
+              { path: 'products.product' },
+            ],
+          })
+          .populate('customer')
+          .populate('recordedBy', 'name email');
 
-    // Also synchronize payment status on linked Sales Order
-    if (invoice.salesOrder) {
-      await SalesOrder.findByIdAndUpdate(invoice.salesOrder, { paymentStatus: 'Paid' });
+        return res.status(200).json({
+          message: 'Customer payment recorded successfully (idempotent replay)',
+          invoice: populated,
+        });
+      }
+      return res.status(400).json({ message: 'This invoice has already been paid in full' });
     }
 
-    const populated = await Invoice.findById(invoice._id)
+    // Also synchronize payment status on linked Sales Order
+    if (updatedInvoice.salesOrder) {
+      await SalesOrder.findByIdAndUpdate(updatedInvoice.salesOrder, { paymentStatus: 'Paid' });
+    }
+
+    const populated = await Invoice.findById(updatedInvoice._id)
       .populate({
         path: 'salesOrder',
         populate: [

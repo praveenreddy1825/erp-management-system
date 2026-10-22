@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import Layout from './components/Layout.jsx';
@@ -11,8 +10,9 @@ import Suppliers from './pages/Suppliers.jsx';
 import SalesOrders from './pages/SalesOrders.jsx';
 import PurchaseOrders from './pages/PurchaseOrders.jsx';
 import GRNs from './pages/GRNs.jsx';
-import Invoices from './pages/Invoices.jsx'
+import Invoices from './pages/Invoices.jsx';
 import Users from './pages/Users.jsx';
+import Profile from './pages/Profile.jsx';
 import { useContext } from 'react';
 import { AuthContext } from './context/AuthContext.jsx';
 
@@ -100,6 +100,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="profile" element={<Profile />} />
         </Route>
       </Routes>
     </BrowserRouter>
