@@ -1,71 +1,99 @@
-# ERP Management System: Secure Role-Based Access Control (RBAC) & Business Portal
+# ERP Management System: Enterprise RBAC & Cloud Business Portal
 
-A modern, security-first ERP system designed to manage sales pipelines, procurement contracts, inventory stock tracking, goods receipt notes (GRN), and commercial invoicing. 
+A full-stack, enterprise-grade Enterprise Resource Planning (ERP) platform designed for multi-tier inventory management, categorized B2C/B2B storefront ordering, procurement lifecycle tracking with Goods Receipt Notes (GRN), commercial invoicing, and granular Role-Based Access Control (RBAC).
 
-The application utilizes a stateless, token-based authentication framework to enforce a granular Role-Based Access Control (RBAC) permission matrix, isolating external clients (Customers/Suppliers) from proprietary business data, and dividing backend catalog/inventory write permissions across internal roles.
+---
+
+## 🌐 Live Cloud Deployment
+
+| Component | Platform | Status |
+| :--- | :--- | :--- |
+| **Frontend** | [Vercel](https://vercel.com) | 🟢 Live |
+| **Backend API** | [Render](https://render.com) | 🟢 Live |
+| **Database** | [MongoDB Atlas](https://www.mongodb.com/atlas) | 🟢 Live (Replica Set) |
+
+---
+
+## 🔑 Deployed Demo Accounts
+
+All pre-configured accounts in the live MongoDB Atlas cluster use the default enterprise password:
+> **Password**: `Welcome@123`
+
+| Role | Email | Description & Scope |
+| :--- | :--- | :--- |
+| **System Admin** | `admin@erp.com` | Full enterprise control, system KPIs, user & staff provisioning, audit oversight |
+| **Sales Manager** | `sales@erp.com` | Sales pipeline, order approval, shipping transitions, invoicing & payment tracking |
+| **Purchase Manager** | `purchase@erp.com` | Supplier directory, purchase orders (PO), GRN intake approval, payment verification |
+| **Inventory Manager** | `inventory@erp.com` | Stock valuation, reorder thresholds, warehouse intake & inventory movements |
+| **Supplier** | `wholesale@kirana.com` | Multi-tenant PO contract portal, shipment dispatch & delivery confirmation, PDF invoices |
+| **Customer** | `praveen@gmail.com` | Categorized shopping store, cart & checkout, order history, invoice downloads |
 
 ---
 
 ## 🚀 Key Features & Capabilities
 
-### 1. Multi-Layered RBAC Security
-* **Backend Authorization**: Core REST API routes are protected by a custom JWT-parsing middleware check coupled with route-level role filters (`Admin`, `Sales_Manager`, `Purchase_Manager`, `Inventory_Manager`, `Customer`, `Supplier`).
-* **Database Isolation ("Own-Only" Filters)**: Queries are dynamically modified in the controllers to ensure external clients can only query their own profiles, orders, and invoices.
-* **Write Permission Splits**: An `Inventory_Manager` can update physical quantities (`stock`, `reorderLevel`) but is blocked from modifying product details (e.g. price, description).
-* **UI Conditionally Rendered Blocks**: Critical inventory alerts and stock numbers are completely hidden from customer and supplier viewports in the React catalog pages.
+### 1. Granular RBAC & Security Isolation
+- **Role-Based Authorization**: Protected by JWT verification middleware and strict route-level role gates (`Admin`, `Sales_Manager`, `Purchase_Manager`, `Inventory_Manager`, `Customer`, `Supplier`).
+- **Multi-Tenant Supplier Isolation**: Suppliers can only view and update purchase orders assigned to their business ID.
+- **Customer Privacy**: Customers only access their own order histories, invoices, and cart sessions.
+- **Secure Password Hashing**: Enforces standard `bcrypt` hashing with pre-save hooks and security rules.
+- **Sidebar & Route Guarding**: Dynamic navigation tree adapted to the authenticated role with automatic route protection.
 
-### 2. Specialized Dynamic Sub-Dashboards
-The main dashboard dynamically loads one of six custom-built sub-dashboards depending on the user's role:
-* **Admin Dashboard**: Core KPIs (total revenue, acquisition costs, low-stock count), sales-vs-procurement chart, stock level gauges, and operational task checklist.
-* **Sales Dashboard**: Focuses on sales pipelines, pending client orders, active client counts, and invoice charts.
-* **Purchase Dashboard**: Tracks vendor contracts, incoming shipments, and pending PO releases.
-* **Inventory Dashboard**: Monitors warehouse stock levels, low-stock warnings, and processed Goods Receipt Notes.
-* **Customer Dashboard**: Personalized billing portal with order logs, invoices, and direct helpdesk links.
-* **Supplier Dashboard**: Viewport for suppliers to track assigned PO contracts and issue dispatch updates.
+### 2. Modern Customer Storefront & Cart Experience
+- **Categorized Shopping**: Browse items by category (*Grocery*, *Packaged Food*, *Dairy*, *Beverages*, *Household*).
+- **Persistent Cart**: Cloud-persisted shopping cart with quantity controls, subtotal calculations, and stock checks.
+- **Concurrency & Idempotency Protection**: Safe checkout protected by idempotency keys to prevent double-charging or duplicate order placement.
 
-### 3. Business Workflow Automation
-* **Zero-Setup User Provisioning**: When an Admin or Purchase Manager adds a Customer or Supplier to the directory, a linked user account is automatically generated in the database with a default password (`Welcome@123`), allowing them to log in instantly.
-* **Self-Registration Linkages**: Public client registration initializes the customer profile, billing address, and contact links automatically.
-* **Low Stock Highlight Alerts**: Dropdown selectors for PO creation prefix low-stock items with `⚠️ [LOW STOCK]` and display a red indicator next to line items if a low-stock product is selected.
+### 3. Inventory Reservation & Stock Tracking
+- **Two-Phase Inventory Commitment**: When a sales order is placed, stock is *reserved*. When delivered, stock is physically decremented, preventing stockout races.
+- **Automatic SKU Generation**: Standardized SKU codes based on category prefix, brand, and sequence.
+- **Reorder Level Alerts**: Dynamic badges flagging critical low stock items across purchase and inventory views.
+- **Stock Movements Audit**: Complete audit trail tracking inventory increases (GRN intake) and decreases (order delivery).
 
----
+### 4. Procurement Workflow & Goods Receipt Notes (GRN)
+- **Purchase Order (PO) Lifecycle**: `Draft` ➔ `Ordered` ➔ `Partially Received` ➔ `Received` ➔ `Completed`.
+- **GRN Physical Intake**: Warehouse staff verify received quantities against PO line items.
+- **Two-Way Payment Sync**: Marking a sales order as paid automatically synchronizes the associated invoice, and vice versa.
 
-## 🛠️ Tech Stack & Libraries
+### 5. Universal Profile Management
+- Universal Profile page (`/profile`) available for all roles to view and manage personal details, contact numbers, and delivery/billing addresses.
+- Automatically synchronizes with customer directory profiles and linked contacts.
 
-* **Backend**: Node.js, Express, MongoDB (with Mongoose ODM), JSON Web Tokens (JWT) for session management, and `bcrypt` for password hashing.
-* **Frontend**: React (Vite), Tailwind CSS, Material-UI Icons, and Recharts (for data visualization).
-
----
-
-## 📂 Database Relationship Schema
-The database uses a decoupled **shared contact reference model** to link login credentials to business profiles:
-- A `User` document holds authentication data (email, role, hashed password).
-- A `Contact` document holds shipping/billing information (email, phone, address).
-- A `Customer` or `Supplier` document references the `Contact` ID.
-- During queries, the backend resolves: **Logged-in user email ➔ Contact ID ➔ Customer/Supplier Document ID**, ensuring data isolation.
+### 6. Document Generation
+- Export professional, print-ready PDF invoices and Purchase Order documents directly in the browser via `jspdf` and `jspdf-autotable`.
 
 ---
 
-## 🏁 Getting Started & Setup
+## 🛠️ Technology Stack
 
-### Prerequisites
-- Node.js installed locally.
-- MongoDB service running at `mongodb://localhost:27017`.
+- **Backend**: Node.js, Express 5, MongoDB Atlas (Mongoose 9), JWT (`jsonwebtoken`), `bcryptjs`, `express-validator`.
+- **Frontend**: React 19, Vite, Tailwind CSS, Material-UI Icons, Recharts, `jspdf`, React Router 7.
+- **Deployment**: Render (Backend Web Service), Vercel (Frontend Client), MongoDB Atlas (Cloud Database).
 
-### 1. Backend Setup
-1. Open a terminal in the `/backend` folder:
+---
+
+## 🏁 Local Development Setup
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/praveenreddy1825/erp-management-system.git
+cd erp-management-system
+```
+
+### 2. Backend Configuration
+1. Navigate to `backend`:
    ```bash
    cd backend
    npm install
    ```
-2. Create a `.env` file with the following variables:
+2. Configure `.env`:
    ```env
    PORT=9999
    MONGO_URI=mongodb://localhost:27017/erp_management
-   JWT_SECRET=your_confidential_jwt_secret_key
+   JWT_SECRET=your_super_secret_jwt_key
    NODE_ENV=development
    ```
-3. Run the database seeder to initialize default catalogs, admin/staff users, and profiles:
+3. Seed sample data:
    ```bash
    npm run seed
    ```
@@ -74,28 +102,46 @@ The database uses a decoupled **shared contact reference model** to link login c
    npm run dev
    ```
 
-### 2. Frontend Setup
-1. Open a terminal in the `/frontend` folder:
+### 3. Frontend Configuration
+1. Navigate to `frontend`:
    ```bash
    cd frontend
    npm install
    ```
-2. Start the development server:
+2. Start the Vite dev server:
    ```bash
    npm run dev
+   ```
+3. To test production build:
+   ```bash
+   npm run build
    ```
 
 ---
 
-## 🔑 Default Test Accounts
-After seeding the database, you can log in with any of these pre-configured roles. 
-* **Password (Shared Default)**: `Welcome@123`
+## 📂 Project Directory Structure
 
-| Role | Username (Email) | Purpose |
-| :--- | :--- | :--- |
-| **Admin** | `admin@erp.com` | Full operational system command |
-| **Sales Manager** | `sales@erp.com` | Manage customers, process orders, issue invoices |
-| **Purchase Manager** | `purchase@erp.com` | Create purchase orders, manage suppliers |
-| **Inventory Manager** | `inventory@erp.com` | Update stock levels, register incoming GRN shipments |
-| **Customer** | `praveen@gmail.com` | Client billing portal, place orders, download invoices |
-| **Supplier** | `supplier_tata@gmail.com` | Supplier portal, accept PO contracts, update shipping status |
+```
+ERP-MANAGEMENT-SYSTEM/
+├── backend/
+│   ├── config/             # Database connection (db.js)
+│   ├── controllers/        # Auth, Products, Orders, Procurement, Invoices, Cart
+│   ├── middleware/         # Auth token & role-checking middlewares
+│   ├── models/             # Mongoose schemas (User, Product, SalesOrder, etc.)
+│   ├── routes/             # Express API route endpoints
+│   ├── scripts/            # Seeder and migration utilities
+│   ├── tests/              # Integration and unit tests
+│   └── utils/              # Inventory helpers, PDF generators, token helpers
+├── frontend/
+│   ├── src/
+│   │   ├── components/     # Layout, Sidebar, Navbar, Role-based Dashboards
+│   │   ├── context/        # AuthContext & CartContext
+│   │   ├── pages/          # Products, SalesOrders, PurchaseOrders, Profile, etc.
+│   │   └── utils/          # PO Invoice PDF generation
+└── README.md
+```
+
+---
+
+## 📄 License
+This project is licensed under the ISC License.
